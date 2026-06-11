@@ -8,7 +8,13 @@ App mobile-web do BT Performance: 21 telas (design do handoff Claude Design, jun
 
 ## Cadastro de usuários (por que não há tela de signup)
 
-Decisão da fase Laboratório: **acesso é criado pelo treinador, não self-service** (autocadastro de atleta amador é a Fase 3/Player da V2). Para criar um usuário novo (atleta ou treinador): editar e rodar `supabase/004_criar_usuario.sql` no SQL Editor — cria auth + perfil + ficha do atleta já vinculada ao treinador em um bloco.
+Decisão da fase Laboratório: **acesso é criado pelo treinador, não self-service** (autocadastro de atleta amador é a Fase 3/Player da V2). Para criar um atleta novo, **1 comando, sem SQL** (testado de ponta a ponta em 2026-06-11 — signup oficial + perfil + ficha vinculada + validação de login/RLS):
+
+```bash
+./scripts/criar-atleta.sh maria@exemplo.com 'S3nha-F0rte!' "Maria Souza" maria-souza
+```
+
+O slug (último argumento) deve ser o mesmo `atleta_id` da planilha do lab. Fallback/SQL avançado (criar treinador, casos especiais): `supabase/004_criar_usuario.sql` no SQL Editor.
 
 Contexto de segurança: o endpoint público de signup do projeto fica **aberto** porque o Supabase é compartilhado com o BeachFlow (desligar quebraria o cadastro de professores de lá). Um estranho que se cadastre consegue no máximo criar um perfil vazio — o RLS garante que veja 0 atletas e 0 dados (testado com `intruso@teste.com`). O primeiro login no app cria o `bt_perfis` com o papel do toggle Treinador/Atleta; o vínculo atleta↔ficha (`atleta_id`) só existe via 004.
 
