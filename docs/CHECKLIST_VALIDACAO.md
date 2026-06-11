@@ -36,3 +36,11 @@ Os 23 itens foram re-executados no preview (fluxo treinador completo + fluxo atl
 
 1. **Tipo do relatório de equipe** — gerar para "Equipe toda" gravava `type: individual` (default do select). Agora o tipo é derivado da seleção: equipe → `equipe`, atleta → `individual`, mensal mantém `mensal`.
 2. **Decisão aplicada sem sessões** — aplicar PROGREDIR/REDUZIR num atleta sem sessões planejadas na semana mostrava "aplicado a 0 sessão(ões)". Agora mostra "registrado — sem sessões planejadas nesta semana".
+
+## Nuvem (2026-06-11, mesma data)
+
+Espelho remoto ligado no Supabase compartilhado `btjsweysefmbceqqlyxx` (tabela `bt_app_estado`, migração aplicada via repo da Copa com histórico reparado). Verificado no preview:
+
+- Boot sem linha remota → estado local sobe para a nuvem (pull confirmou 6 atletas, 14 sessões).
+- "Segundo dispositivo" (localStorage zerado + reload) → estado volta da nuvem, incluindo dados criados em testes (CMJ 33 da Marina, readiness 0 do João, mensagem de teste).
+- Nuvem fora do ar (testado contra projeto pausado) → um toast "Nuvem indisponível — salvando localmente" e o app segue normal.

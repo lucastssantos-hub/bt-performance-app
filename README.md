@@ -27,13 +27,19 @@ python3 -m http.server 4173 --directory bt-performance-lab/app
 | `supabase/002_app_estado.sql` | tabela do espelho de estado (rodar após restore do projeto) |
 | `supabase/001_schema_bt.sql` | schema relacional v2 (projeto `rkoqcvylamvnkxnaegna`) |
 
-### Ligar a nuvem (projeto Supabase pausado — 3 passos manuais)
+### Ligar a nuvem (projeto compartilhado btjsweysefmbceqqlyxx — 1 migração)
 
-1. Restore do projeto: https://supabase.com/dashboard/project/rkoqcvylamvnkxnaegna (botão Restore; projeto free pausa de novo após ~1 semana sem uso).
-2. SQL Editor → rodar `supabase/002_app_estado.sql`.
-3. Settings → API → copiar URL e chave anon para `js/supabase-config.js`.
+Decisão 2026-06-11: usar o Supabase compartilhado (BeachFlow + Copa) em vez do projeto pausado `rkoqcvylamvnkxnaegna`. A config (`js/supabase-config.js`) já aponta para ele; falta só criar a tabela, via migração já preparada no repo da Copa:
 
-Sem nuvem o app funciona normal (localStorage); com nuvem o estado sincroniza entre dispositivos. Política da tabela é nível demo (anon lê/escreve, dados fictícios) — antes de atleta real, migrar para Supabase Auth + RLS do `001_schema_bt.sql`.
+```bash
+cd "/Users/lucassantos/Desktop/Workoom Projetos/Projetos/Copa-do-Mundo/copa-vite"
+supabase migration repair --status applied 20260610130000 20260610150000 20260610180000 20260610200000
+supabase db push   # aplica só 20260611120000_bt_app_estado.sql
+```
+
+(O `repair` registra no histórico 4 migrações da Copa que já foram aplicadas à mão pelo SQL Editor — sem ele, o `db push` tentaria re-rodá-las.) Alternativa: colar `supabase/002_app_estado.sql` no SQL Editor do projeto.
+
+Sem a tabela o app funciona normal (localStorage + um aviso). Com ela, o estado sincroniza entre dispositivos. Política da tabela é nível demo (anon lê/escreve, dados fictícios) — antes de atleta real, migrar para Supabase Auth + RLS do `001_schema_bt.sql`.
 | `docs/` | auditoria, MVP, botões/rotas, dados/modelos, checklist |
 
 ## Documentação
