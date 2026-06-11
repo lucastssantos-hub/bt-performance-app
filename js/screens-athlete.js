@@ -59,7 +59,8 @@ export function athleteHome() {
 export function athleteWellness(ctx) {
   const a = myAthlete();
   const existing = latestCheckin(a.id);
-  const base = (existing && existing.date === todayISO()) ? existing : { sleepQuality: 3, sleepHours: 7, energy: 3, musclePain: 1, stress: 1, painLocation: '', painScore: 0 };
+  const base = (existing && existing.date === todayISO()) ? existing : { sleepQuality: 3, sleepHours: 7, energy: 3, musclePain: 1, stress: 1, humor: 3, painLocation: '', painScore: 0, alteraMovimento: false, emImpacto: false };
+  if (base.humor == null) base.humor = 3;
   if (!ctx.checkin) ctx.checkin = { ...base };
   const ck = ctx.checkin;
   const scaleRow = (label, key, value, labels, invert) => {
@@ -82,10 +83,14 @@ export function athleteWellness(ctx) {
       ${scaleRow('Energia', 'energy', ck.energy, ['Esgotado', 'Baixa', 'Normal', 'Alta', 'Máxima'], false)}
       ${scaleRow('Dor muscular', 'musclePain', ck.musclePain, ['Nenhuma', 'Leve', 'Moderada', 'Forte', 'Intensa'], true)}
       ${scaleRow('Estresse', 'stress', ck.stress, ['Baixo', 'Leve', 'Médio', 'Alto', 'Crítico'], true)}
+      ${scaleRow('Humor', 'humor', ck.humor, ['Péssimo', 'Baixo', 'Neutro', 'Bom', 'Ótimo'], false)}
       <div><div style="display:flex;justify-content:space-between;margin-bottom:11px;"><span style="font-size:14.5px;font-weight:600;">Dor localizada</span><span style="font-size:13px;color:${ck.painScore >= 7 ? '#FF5D5D' : ck.painScore > 0 ? '#FFC24B' : '#34E0A1'};font-weight:700;">${ck.painScore > 0 ? ck.painScore + '/10' : 'sem dor'}</span></div>
         <div style="display:flex;gap:8px;">
           <input id="ck-painloc" placeholder="região (ex: lombar)" value="${esc(ck.painLocation)}" style="flex:1.4;background:#14181F;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;color:#F4F6F8;font-family:'Manrope';font-size:13px;outline:none;">
-          <input id="ck-painscore" type="number" min="0" max="10" value="${ck.painScore}" style="flex:.6;background:#14181F;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;color:#F4F6F8;font-family:'Manrope';font-size:13px;outline:none;"></div></div>
+          <input id="ck-painscore" type="number" min="0" max="10" value="${ck.painScore}" style="flex:.6;background:#14181F;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;color:#F4F6F8;font-family:'Manrope';font-size:13px;outline:none;"></div>
+        <div style="display:flex;gap:16px;margin-top:10px;">
+          <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#C7CFDA;"><input id="ck-altera" type="checkbox" ${ck.alteraMovimento ? 'checked' : ''} style="accent-color:#FF6A3D;">Altera o movimento</label>
+          <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#C7CFDA;"><input id="ck-impacto" type="checkbox" ${ck.emImpacto ? 'checked' : ''} style="accent-color:#FF6A3D;">Dói no impacto</label></div></div>
     </div>
     <button class="tap btn-primary" data-action="checkin-save" style="margin-top:26px;box-shadow:0 12px 30px -8px rgba(255,106,61,.5);">Enviar check-in</button>
   </div>`;

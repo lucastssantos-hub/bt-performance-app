@@ -1,5 +1,5 @@
 // app.js — router de pilha + despachante de ações + formulários (modais)
-import { db, auth, syncRemote, uid, todayISO, addDays, mondayOf, readinessFrom, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness } from './db.js';
+import { db, auth, syncRemote, ready, saveCheckin, saveDecision, uid, todayISO, addDays, mondayOf, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness } from './db.js';
 import { toast, openModal, closeModal, confirmDialog, field, input, select, textarea, esc, fmtShort } from './ui.js';
 import * as C from './screens-coach.js';
 import * as A from './screens-athlete.js';
@@ -24,6 +24,13 @@ else if (state.stack[state.stack.length - 1] === 'login') state.stack = [auth.cu
 const cur = () => state.stack[state.stack.length - 1];
 function render() {
   const root = document.getElementById('screen-root');
+  // logado mas ainda sem cache hidratado do Supabase: tela de carregamento até o syncRemote
+  if (auth.current() && !ready() && cur() !== 'login') {
+    root.innerHTML = `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#8A94A3;font-size:14px;">
+      <div style="width:46px;height:46px;border-radius:14px;background:#FF6A3D;display:flex;align-items:center;justify-content:center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 13.5C8 17 12 18 19 16" stroke="#0B0E12" stroke-width="2.6" stroke-linecap="round"/><circle cx="8.5" cy="8" r="3.4" stroke="#0B0E12" stroke-width="2.6"/></svg></div>
+      Carregando seus dados…</div>`;
+    return;
+  }
   try {
     root.innerHTML = `<div class="screenfade" style="position:absolute;inset:0;overflow-y:auto;">${screens[cur()](state.ctx)}</div>`;
   } catch (err) {
@@ -69,16 +76,18 @@ function formAssessment() {
     field('Data', input('date', { type: 'date', value: todayISO() })),
     `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`,
     field('CMJ (cm)', input('cmj', { type: 'number', step: '0.1', min: 0 })),
+    field('SJ (cm)', input('sj', { type: 'number', step: '0.1', min: 0 })),
     field('Sprint 10m (s)', input('sprint10m', { type: 'number', step: '0.01', min: 0 })),
     field('Agilidade 5-0-5 (s)', input('agility505', { type: 'number', step: '0.01', min: 0 })),
-    field('Mob. tornozelo (°)', input('ankleMobility', { type: 'number', step: '1', min: 0 })),
+    field('Mob. tornozelo (°)', input('ankleMobility', { type: 'number', step: '1', min: 0, required: false })),
     `</div>`,
     field('Observações', textarea('notes', { placeholder: 'opcional' })),
   ].join(''), {
     onSubmit(d) {
-      const cmj = +d.cmj, spr = +d.sprint10m, agi = +d.agility505, ank = +d.ankleMobility;
+      const cmj = +d.cmj, sj = +d.sj, spr = +d.sprint10m, agi = +d.agility505, ank = +d.ankleMobility || 0;
+      if (sj && cmj && sj > cmj) return toast('SJ maior que CMJ — confira a coleta (canônico §6).', 'err');
       const generalIndex = Math.max(0, Math.min(100, Math.round(cmj * 1.2 + (2.4 - spr) * 40 + (3 - agi) * 25 + ank * 0.4)));
-      db.insert('assessments', { athleteId: a.id, date: d.date, generalIndex, cmj, sprint10m: spr, agility505: agi, ankleMobility: ank, notes: d.notes || '' });
+      db.insert('assessments', { id: `${a.id}-${d.date}`, athleteId: a.id, date: d.date, generalIndex, cmj, sj, sprint10m: spr, agility505: agi, ankleMobility: ank, notes: d.notes || '' });
       closeModal(); toast('Avaliação salva'); render();
     }
   });
@@ -134,6 +143,7 @@ function formTournament(existing) {
     onSubmit(d, form) {
       if (d.endDate < d.startDate) return toast('Fim antes do início', 'err');
       const athletes = db.list('athletes').filter(a => form.querySelector(`[name="ath_${a.id}"]`).checked).map(a => a.id);
+      if (!athletes.length) return toast('Selecione ao menos um atleta (canônico: torneio é por atleta).', 'err');
       const patch = { name: d.name, location: d.location, level: d.level, startDate: d.startDate, endDate: d.endDate, isMainTarget: !!d.isMainTarget, athletes };
       if (existing) db.update('tournaments', existing.id, patch); else db.insert('tournaments', patch);
       closeModal(); toast(existing ? 'Torneio atualizado' : 'Torneio cadastrado'); render();
@@ -204,20 +214,24 @@ const actions = {
   forgot: () => toast('Recuperação de senha será integrada. Use a senha 123456.', 'warn'),
   'modal-close': () => closeModal(),
 
-  // login
+  // login (Supabase Auth real — async)
   'login-role': (el) => { state.ctx.loginRole = el.dataset.arg; render(); },
-  'login-enter': () => {
+  'login-enter': async () => {
     const email = document.getElementById('login-email').value;
     const pass = document.getElementById('login-password').value || '';
-    const u = auth.login(email, pass);
-    if (!u) return toast('E-mail ou senha inválidos. Dica: senha 123456.', 'err');
+    const papel = (state.ctx.loginRole || 'TRAINER') === 'TRAINER' ? 'treinador' : 'atleta';
+    toast('Entrando…');
+    let u;
+    try { u = await auth.login(email, pass, papel); }
+    catch (err) { return toast(`Login falhou: ${err.message}`, 'err'); }
+    await syncRemote(); // hidrata o cache das tabelas bt_* antes de navegar
     state.ctx = {};
     toast(`Bem-vindo, ${u.name.split(' ')[0]}!`);
     tab(u.role === 'TRAINER' ? 'coachDash' : 'athleteHome');
   },
   logout: async () => {
     if (!(await confirmDialog('Sair da conta?', { okLabel: 'Sair' }))) return;
-    auth.logout(); state.ctx = {}; tab('login'); toast('Sessão encerrada');
+    await auth.logout(); state.ctx = {}; tab('login'); toast('Sessão encerrada');
   },
 
   // atletas
@@ -233,18 +247,22 @@ const actions = {
   // plano / sessões
   'plan-week': (el) => { state.ctx.planWeek = addDays(state.ctx.planWeek || mondayOf(todayISO()), 7 * +el.dataset.arg); render(); },
   'session-new': (el) => formSession(null, el.dataset.arg),
-  'session-edit': (el) => { const s = db.get('sessions', el.dataset.arg); if (s) formSession(s); },
+  'session-edit': (el) => {
+    const s = db.get('sessions', el.dataset.arg);
+    if (s && s.prescrita) return toast('Sessão prescrita pelo motor — edição só pelo lab.', 'warn');
+    if (s) formSession(s);
+  },
   'session-delete': async (el) => {
     closeModal();
     if (!(await confirmDialog('Remover esta sessão do plano?', { okLabel: 'Remover' }))) return;
     db.remove('sessions', el.dataset.arg); toast('Sessão removida'); render();
   },
 
-  // decisão da semana
+  // decisão da semana — 6 valores oficiais, gravada em bt_decisoes_semana
   'decision-apply': async (el) => {
     const a = db.get('athletes', state.ctx.athleteId) || db.list('athletes')[0];
     const dec = el.dataset.arg;
-    const factor = { PROGREDIR: 1.10, REDUZIR: 0.80, DESCARREGAR: 0.60, MANTER: 1, ENCAMINHAR: 1 }[dec] || 1;
+    const factor = { PROGREDIR: 1.10, REDUZIR: 0.80, DESCARREGAR: 0.60, MANTER: 1, REAVALIAR: 1, ENCAMINHAR: 1 }[dec] || 1;
     if (factor !== 1) {
       if (!(await confirmDialog(`Aplicar ${dec} (${factor > 1 ? '+' : '−'}${Math.round(Math.abs(factor - 1) * 100)}%) nas sessões planejadas da semana de ${a.name.split(' ')[0]}?`, { okLabel: 'Aplicar', danger: false }))) return;
       const mon = mondayOf(todayISO());
@@ -252,19 +270,19 @@ const actions = {
       planned.forEach(s => db.update('sessions', s.id, { plannedLoad: Math.round(s.plannedLoad * factor) }));
       toast(planned.length ? `${dec} aplicado a ${planned.length} sessão(ões)` : `${dec} registrado — sem sessões planejadas nesta semana`);
     } else toast(`Decisão ${dec} registrada`);
-    db.all().decisions[a.id] = { decision: dec, note: `Aplicado manualmente em ${fmtShort(todayISO())}.`, appliedAt: Date.now() };
-    db.save(); tab('coachPlan');
+    saveDecision(a.id, { sugerida: dec, final: dec, note: `Aplicado manualmente em ${fmtShort(todayISO())}.` });
+    tab('coachPlan');
   },
   'decision-adjust': () => {
     const a = db.get('athletes', state.ctx.athleteId) || db.list('athletes')[0];
     const dec = (db.all().decisions || {})[a.id] || {};
     openModal(`Ajustar decisão · ${a.name.split(' ')[0]}`, [
-      field('Decisão', select('decision', ['PROGREDIR', 'MANTER', 'REDUZIR', 'DESCARREGAR', 'ENCAMINHAR'], dec.decision || 'MANTER')),
+      field('Decisão', select('decision', ['PROGREDIR', 'MANTER', 'REDUZIR', 'DESCARREGAR', 'REAVALIAR', 'ENCAMINHAR'], dec.decision || 'MANTER')),
       field('Justificativa', textarea('note', { value: dec.note || '', placeholder: 'critério do treinador' })),
     ].join(''), {
       onSubmit(d) {
-        db.all().decisions[a.id] = { decision: d.decision, note: d.note, appliedAt: Date.now() };
-        db.save(); closeModal(); toast('Decisão registrada'); render();
+        saveDecision(a.id, { final: d.decision, note: d.note });
+        closeModal(); toast('Decisão registrada'); render();
       }
     });
   },
@@ -302,25 +320,28 @@ const actions = {
   'notif-read': (el) => { db.update('notifications', el.dataset.arg, { read: true }); render(); },
   'settings-push': () => { const s = db.all().settings; s.pushEnabled = !s.pushEnabled; db.save(); toast(s.pushEnabled ? 'Push ativado' : 'Push desativado'); render(); },
 
-  // check-in
+  // check-in — wellness canônico (bt_monitoramento_diario) + dor (bt_dor_registros);
+  // prontidão vem APENAS da view bt_prontidao_v1
   'checkin-set': (el) => { state.ctx.checkin[el.dataset.key] = +el.dataset.arg; render(); },
-  'checkin-save': () => {
+  'checkin-save': async () => {
     const u = auth.current();
     const a = db.get('athletes', u.athleteId) || db.list('athletes')[0];
+    if (!a) return toast('Seu perfil ainda não está vinculado a um atleta. Fale com o treinador.', 'err');
     const ck = state.ctx.checkin;
     ck.painLocation = (document.getElementById('ck-painloc') || {}).value ?? ck.painLocation;
     ck.painScore = Math.max(0, Math.min(10, +((document.getElementById('ck-painscore') || {}).value ?? ck.painScore) || 0));
-    const readinessScore = readinessFrom(ck);
-    const existing = db.list('checkins', c => c.athleteId === a.id && c.date === todayISO())[0];
-    const rec = { athleteId: a.id, date: todayISO(), ...ck, readinessScore };
-    if (existing) db.update('checkins', existing.id, rec); else db.insert('checkins', rec);
-    db.update('athletes', a.id, { recoveryScore: readinessScore });
-    // notifica treinador se prontidão baixa ou dor relevante
-    if (readinessScore < 65 || ck.painScore >= 4) {
-      db.insert('notifications', { userId: a.trainerId, title: `${a.name.split(' ')[0]} reportou ${readinessScore < 65 ? 'prontidão baixa' : 'dor'}`, description: `Readiness ${readinessScore}${ck.painScore ? ` · dor ${ck.painLocation || ''} ${ck.painScore}/10` : ''}`, type: 'alert', read: false, createdAt: Date.now() });
+    ck.alteraMovimento = !!(document.getElementById('ck-altera') || {}).checked;
+    ck.emImpacto = !!(document.getElementById('ck-impacto') || {}).checked;
+    toast('Enviando check-in…');
+    let res;
+    try { res = await saveCheckin(a.id, ck); }
+    catch (err) { return toast(`Falha ao salvar check-in: ${err.message}`, 'err'); }
+    // notificação local para o treinador (LEGADO: só aparece neste dispositivo)
+    if ((res.banda && res.banda !== 'VERDE') || ck.painScore >= 4) {
+      db.insert('notifications', { userId: a.trainerId, title: `${a.name.split(' ')[0]} reportou ${res.banda !== 'VERDE' ? 'prontidão baixa' : 'dor'}`, description: `Prontidão ${res.prontidao ?? '—'}/25 (${res.banda || '—'})${ck.painScore ? ` · dor ${ck.painLocation || ''} ${ck.painScore}/10` : ''}`, type: 'alert', read: false, createdAt: Date.now() });
     }
     delete state.ctx.checkin;
-    toast(`Check-in salvo · Recovery ${readinessScore}`);
+    toast(`Check-in salvo · Recovery ${res.readiness}`);
     tab('athleteHome');
   },
 
@@ -334,27 +355,27 @@ const actions = {
   },
   'exercise-toggle': (el) => {
     const s = db.get('sessions', state.ctx.sessionId); if (!s || s.status === 'COMPLETED') return;
-    if (s.status === 'PLANNED') db.update('sessions', s.id, { status: 'IN_PROGRESS' });
     const e = s.exercises.find(x => x.id === el.dataset.arg); if (!e) return;
     e.status = e.status === 'DONE' ? 'PENDING' : 'DONE';
-    db.save(); render();
+    db.update('sessions', s.id, { status: s.status === 'PLANNED' ? 'IN_PROGRESS' : s.status, exercises: s.exercises });
+    render();
   },
   'workout-continue': () => {
     const s = db.get('sessions', state.ctx.sessionId); if (!s) return;
     const nxt = s.exercises.sort((a, b) => a.order - b.order).find(e => e.status !== 'DONE');
-    if (nxt) { nxt.status = 'DONE'; db.save(); toast(`${nxt.name} concluído ✓`); render(); }
+    if (nxt) { nxt.status = 'DONE'; db.update('sessions', s.id, { exercises: s.exercises }); toast(`${nxt.name} concluído ✓`); render(); }
   },
   'workout-finish': (el) => {
     const s = db.get('sessions', el.dataset.arg || state.ctx.sessionId); if (!s) return;
     openModal('Finalizar treino', [
       `<div style="font-size:14px;color:#C7CFDA;margin-bottom:14px;">Como foi o esforço da sessão inteira?</div>`,
-      field('RPE final (1–10)', input('rpe', { type: 'number', min: 1, max: 10, value: s.targetRpe })),
+      field('RPE final (1–10)', input('rpe', { type: 'number', min: 1, max: 10, value: s.targetRpe === '—' ? 7 : s.targetRpe })),
     ].join(''), {
       submitLabel: 'Finalizar',
       onSubmit(d) {
         const rpe = Math.max(1, Math.min(10, +d.rpe));
-        db.update('sessions', s.id, { status: 'COMPLETED', rpeFinal: rpe });
-        s.exercises.forEach(e => e.status = 'DONE'); db.save();
+        s.exercises.forEach(e => e.status = 'DONE');
+        db.update('sessions', s.id, { status: 'COMPLETED', rpeFinal: rpe, exercises: s.exercises });
         const a = db.get('athletes', s.athleteId);
         db.insert('notifications', { userId: a.trainerId, title: `${a.name.split(' ')[0]} completou ${s.title}`, description: `RPE ${rpe} · ${s.durationMinutes} min · ${Math.round(s.durationMinutes * rpe)} UA`, type: 'success', read: false, createdAt: Date.now() });
         closeModal(); toast(`Treino finalizado · ${Math.round(s.durationMinutes * rpe)} UA`); render();
@@ -384,6 +405,10 @@ document.addEventListener('click', (e) => {
 history.replaceState({ i: state.stack.length }, '');
 render();
 
-// Espelho remoto: renderiza local primeiro, puxa a nuvem em background e re-renderiza se mudou.
-window.addEventListener('btp-sync-error', () => toast('Nuvem indisponível — salvando localmente', 'warn'));
-syncRemote().then((mudou) => { if (mudou) render(); });
+// Boot: renderiza o snapshot local primeiro, hidrata das tabelas bt_* e re-renderiza.
+// Se a sessão Supabase expirou/é inválida, volta para o login.
+window.addEventListener('btp-sync-error', () => toast('Nuvem indisponível — alteração pode não ter sido salva', 'warn'));
+syncRemote().then((mudou) => {
+  if (!auth.current() && cur() !== 'login') { state.stack = ['login']; render(); }
+  else if (mudou || !ready()) render();
+});

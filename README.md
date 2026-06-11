@@ -2,9 +2,9 @@
 
 App mobile-web do BT Performance: 21 telas (design do handoff Claude Design, jun/2026) funcionando de ponta a ponta — login por papel, dados persistentes, formulários, cálculos simples e fluxos completos de treinador e atleta. **Sem motor de prescrição** (decisão da semana é administrativa).
 
-- **Produção:** https://lucastssantos-hub.github.io/bt-performance-app/ (GitHub Pages, repo público, deploy automático no push para `main` — decisão 2026-06-11; a Vercel foi abandonada por deploys travando no plano free)
-- **Stack:** HTML/CSS/JS vanilla (ES modules), sem build. Persistência local-first: localStorage sempre + espelho remoto opcional no Supabase (`js/remote.js`; liga preenchendo `js/supabase-config.js` e rodando `supabase/002_app_estado.sql`). Schema relacional para a v2 em `supabase/001_schema_bt.sql`.
-- **Usuários de teste:** `rafael@equipebrasil.com` / `123456` (treinador) · `joao@atleta.com` / `123456` (atleta)
+- **Produção:** https://lucastssantos-hub.github.io/bt-performance-app/ (GitHub Pages, repo público, deploy automático no push para `main` — decisão 2026-06-11; a Vercel foi abandonada por deploys travando no plano free). **Atenção: a versão publicada ainda é a anterior (localStorage + bt_app_estado); este diretório já está no modelo canônico — publicar exige copiar os js/ atualizados para o repo do app.**
+- **Stack (desde 2026-06-11):** HTML/CSS/JS vanilla (ES modules), sem build. **Supabase Auth real + tabelas canônicas `bt_*`** (`supabase/001_schema_bt.sql`, aplicado no projeto compartilhado): o cache em memória é hidratado no boot e cada escrita vira PostgREST. O localStorage guarda só snapshot (render instantâneo) e as coleções sem tabela canônica (notificações, mensagens, relatórios, settings — **legado, por dispositivo**). A tabela `bt_app_estado` (`supabase/002_app_estado.sql`) é **LEGADO** e não é mais lida/escrita.
+- **Usuários de teste:** `rafael@equipebrasil.com` / `123456` (treinador) · `joao@atleta.com` / `123456` (atleta) — reais no Supabase Auth
 
 ## Rodar local
 
@@ -19,15 +19,15 @@ python3 -m http.server 4173 --directory bt-performance-lab/app
 | Arquivo | Papel |
 |---|---|
 | `index.html` | shell (moldura de phone no desktop, full-bleed no mobile) + CSS |
-| `js/db.js` | modelos, seed (datas relativas a hoje), CRUD, cálculos, auth |
+| `js/db.js` | camada de dados canônica: cache em memória ⇄ tabelas `bt_*` (mapeadores, fila de escrita), cálculos derivados, auth |
 | `js/ui.js` | toasts, modais, confirmação, formatação |
 | `js/screens-coach.js` / `js/screens-athlete.js` | render das 21 telas |
 | `js/app.js` | router de pilha, ações, formulários |
-| `js/remote.js` + `js/supabase-config.js` | espelho remoto do estado (PostgREST, last-write-wins, off por padrão) |
-| `supabase/002_app_estado.sql` | tabela do espelho de estado (rodar após restore do projeto) |
-| `supabase/001_schema_bt.sql` | schema relacional v2 (projeto `rkoqcvylamvnkxnaegna`) |
+| `js/remote.js` + `js/supabase-config.js` | cliente Supabase (Auth GoTrue + PostgREST) |
+| `supabase/001_schema_bt.sql` | schema canônico v2 — **APLICADO** no projeto compartilhado `btjsweysefmbceqqlyxx` (2026-06-11) |
+| `supabase/002_app_estado.sql` | **LEGADO** — antigo espelho de estado; tabela ainda existe mas não é usada |
 
-### Ligar a nuvem (projeto compartilhado btjsweysefmbceqqlyxx — 1 migração)
+### [LEGADO] Ligar a nuvem via bt_app_estado (modelo antigo, pré-canônico)
 
 Decisão 2026-06-11: usar o Supabase compartilhado (BeachFlow + Copa) em vez do projeto pausado `rkoqcvylamvnkxnaegna`. A config (`js/supabase-config.js`) já aponta para ele; falta só criar a tabela, via migração já preparada no repo da Copa:
 

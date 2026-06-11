@@ -174,6 +174,7 @@ export function coachAssessment(ctx) {
     <div class="seclabel" style="margin:4px 4px 12px;">BATERIA DE TESTES · ${fmtShort(cur.date)}</div>
     <div style="display:flex;flex-direction:column;gap:10px;">
       ${bar('Salto vertical (CMJ)', cur.cmj, 'cm', Math.min(100, cur.cmj * 2), '#34E0A1', d('cmj', 'up'))}
+      ${cur.sj ? bar('Squat jump (SJ)', cur.sj, 'cm', Math.min(100, cur.sj * 2), '#34E0A1', d('sj', 'up')) : ''}
       ${bar('Sprint 10m', cur.sprint10m, 's', Math.min(100, Math.max(10, 100 - (cur.sprint10m - 1.4) * 90)), '#34E0A1', d('sprint10m', 'down'))}
       ${bar('Agilidade 5-0-5', cur.agility505, 's', Math.min(100, Math.max(10, 100 - (cur.agility505 - 2.0) * 80)), '#5B9DFF', d('agility505', 'down'))}
       ${bar('Mobilidade tornozelo', cur.ankleMobility, '°', Math.min(100, cur.ankleMobility * 1.6), cur.ankleMobility < 35 ? '#FFC24B' : '#34E0A1', d('ankleMobility', 'up'))}
@@ -284,8 +285,8 @@ export function coachDecision(ctx) {
   const ratio = prevWk ? (wk / prevWk).toFixed(2) : null;
   const nt = nextTournament(a.id);
   const sug = dec ? dec.decision : (st === 'INJURED' ? 'ENCAMINHAR' : st === 'ATTENTION' ? 'REDUZIR' : st === 'COMPETING_SOON' ? 'MANTER' : 'PROGREDIR');
-  const sugLabel = { PROGREDIR: 'PROGREDIR CARGA +10%', MANTER: 'MANTER PLANO', REDUZIR: 'REDUZIR CARGA −20%', DESCARREGAR: 'SEMANA DE DESCARGA', ENCAMINHAR: 'ENCAMINHAR · AVALIAÇÃO' }[sug];
-  const note = dec ? dec.note : { PROGREDIR: 'Prontidão alta e estável. Janela de adaptação aberta — aumentar volume antes do próximo torneio.', MANTER: 'Competição próxima: manter estímulo e priorizar frescor.', REDUZIR: 'Sinais de fadiga/sono baixo. Reduzir volume e reavaliar em 48h.', ENCAMINHAR: 'Dor localizada relevante: encaminhar para avaliação antes de progredir.', DESCARREGAR: 'Bloco longo sem descarga: programar semana leve.' }[sug];
+  const sugLabel = { PROGREDIR: 'PROGREDIR CARGA +10%', MANTER: 'MANTER PLANO', REDUZIR: 'REDUZIR CARGA −20%', DESCARREGAR: 'SEMANA DE DESCARGA', REAVALIAR: 'REAVALIAR · ANTECIPAR TESTES', ENCAMINHAR: 'ENCAMINHAR · FISIO/MÉDICO' }[sug] || sug;
+  const note = dec ? dec.note : { PROGREDIR: 'Prontidão alta e estável. Janela de adaptação aberta — aumentar volume antes do próximo torneio.', MANTER: 'Competição próxima: manter estímulo e priorizar frescor.', REDUZIR: 'Sinais de fadiga/sono baixo. Reduzir volume e reavaliar em 48h.', REAVALIAR: 'Gargalo de informação: antecipar bateria de testes antes de mudar a carga.', ENCAMINHAR: 'Gargalo clínico: encaminhar para fisio/médico antes de progredir.', DESCARREGAR: 'Bloco longo sem descarga: programar semana leve.' }[sug];
   const evid = [];
   evid.push([r >= 80 ? '#34E0A1' : r >= 65 ? '#FFC24B' : '#FF5D5D', `Prontidão ${r}${c ? ` · sono ${c.sleepHours.toFixed(1)}h` : ''}`]);
   if (ratio) evid.push([+ratio <= 1.3 ? '#34E0A1' : '#FFC24B', `Carga semana atual:anterior em ${ratio}`]);

@@ -6,7 +6,7 @@ O app deixou de ser protótipo estático (HTML hardcoded) e virou um MVP funcion
 
 ## Como rodar
 
-- **Produção:** https://bt-performance-app.vercel.app (auto-deploy no push para `main`)
+- **Produção:** https://lucastssantos-hub.github.io/bt-performance-app/ (GitHub Pages, deploy no push para `main`; a Vercel foi abandonada — ver README)
 - **Local:** `python3 -m http.server 4173 --directory bt-performance-lab/app` e abrir `http://localhost:4173` (precisa ser servido por HTTP — usa ES modules; abrir o arquivo direto não funciona). Há config `bt-performance-app` no `.claude/launch.json`.
 
 ## Usuários de teste
