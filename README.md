@@ -25,8 +25,8 @@ python3 -m http.server 4173 --directory bt-performance-lab/app
 | `js/app.js` | router de pilha, ações, formulários |
 | `js/remote.js` + `js/supabase-config.js` | cliente Supabase (Auth GoTrue + PostgREST) |
 | `supabase/001_schema_bt.sql` | schema canônico v2 — **APLICADO** no projeto compartilhado `btjsweysefmbceqqlyxx` (2026-06-11) |
-| `supabase/002_app_estado.sql` | **LEGADO** — antigo espelho de estado (pré-canônico); sem uso desde a v2 |
-| `supabase/003_drop_app_estado.sql` | **descontinuação do legado** — aplicar no SQL Editor do compartilhado para dropar `bt_app_estado` (só guardava snapshot demo; zero referências no código) |
+| `supabase/002_app_estado.sql` | **LEGADO (histórico)** — antigo espelho de estado (pré-canônico); tabela **dropada em 2026-06-11** |
+| `supabase/003_drop_app_estado.sql` | descontinuação do legado — **✅ aplicado em 2026-06-11** (`bt_app_estado` não existe mais; registro apenas) |
 | `docs/` | auditoria, MVP, botões/rotas, dados/modelos, checklist |
 
 ## Documentação

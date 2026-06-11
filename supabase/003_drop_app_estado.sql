@@ -5,8 +5,11 @@
 -- Verificado em 2026-06-11: zero referências no código (js/*), zero chamadas
 -- na rede durante os testes de publicação.
 --
--- APLICAR NO SQL EDITOR do projeto compartilhado btjsweysefmbceqqlyxx
--- (ou via supabase db push a partir do repo da Copa, conforme README).
+-- ✅ APLICADO em 2026-06-11 via `supabase db query --linked` (repo da Copa,
+-- projeto compartilhado btjsweysefmbceqqlyxx). A tabela continha 1 linha de
+-- snapshot demo. Verificação pós-drop: namespace bt_ = 12 tabelas canônicas
+-- + view bt_prontidao_v1; app respondendo normal (bt_atletas 200, bt_app_estado 404).
+-- Este arquivo fica como registro — NÃO precisa ser reaplicado.
 
 drop table if exists bt_app_estado;
 
