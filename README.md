@@ -6,6 +6,12 @@ App mobile-web do BT Performance: 21 telas (design do handoff Claude Design, jun
 - **Stack (desde 2026-06-11):** HTML/CSS/JS vanilla (ES modules), sem build. **Supabase Auth real + tabelas canônicas `bt_*`** (`supabase/001_schema_bt.sql`, aplicado no projeto compartilhado): o cache em memória é hidratado no boot e cada escrita vira PostgREST. O localStorage guarda só snapshot (render instantâneo) e as coleções sem tabela canônica (notificações, mensagens, relatórios, settings — **legado, por dispositivo**). A tabela `bt_app_estado` (`supabase/002_app_estado.sql`) é **LEGADO** e não é mais lida/escrita.
 - **Usuários de teste:** `rafael@equipebrasil.com` / `123456` (treinador) · `joao@atleta.com` / `123456` (atleta) — reais no Supabase Auth. **`intruso@teste.com` / `123456` é mantido de propósito**: treinador sem atletas, usado para regredir o RLS (deve sempre ver 0 atletas/0 dados e tomar 403 em escrita). Remover os três quando entrar atleta real.
 
+## Cadastro de usuários (por que não há tela de signup)
+
+Decisão da fase Laboratório: **acesso é criado pelo treinador, não self-service** (autocadastro de atleta amador é a Fase 3/Player da V2). Para criar um usuário novo (atleta ou treinador): editar e rodar `supabase/004_criar_usuario.sql` no SQL Editor — cria auth + perfil + ficha do atleta já vinculada ao treinador em um bloco.
+
+Contexto de segurança: o endpoint público de signup do projeto fica **aberto** porque o Supabase é compartilhado com o BeachFlow (desligar quebraria o cadastro de professores de lá). Um estranho que se cadastre consegue no máximo criar um perfil vazio — o RLS garante que veja 0 atletas e 0 dados (testado com `intruso@teste.com`). O primeiro login no app cria o `bt_perfis` com o papel do toggle Treinador/Atleta; o vínculo atleta↔ficha (`atleta_id`) só existe via 004.
+
 ## Rodar local
 
 ```
