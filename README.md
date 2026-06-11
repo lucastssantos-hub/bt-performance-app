@@ -2,7 +2,7 @@
 
 App mobile-web do BT Performance: 21 telas (design do handoff Claude Design, jun/2026) funcionando de ponta a ponta — login por papel, dados persistentes, formulários, cálculos simples e fluxos completos de treinador e atleta. **Sem motor de prescrição** (decisão da semana é administrativa).
 
-- **Produção:** https://bt-performance-app.vercel.app
+- **Produção:** https://lucastssantos-hub.github.io/bt-performance-app/ (GitHub Pages, repo público, deploy automático no push para `main` — decisão 2026-06-11; a Vercel foi abandonada por deploys travando no plano free)
 - **Stack:** HTML/CSS/JS vanilla (ES modules), sem build. Persistência local-first: localStorage sempre + espelho remoto opcional no Supabase (`js/remote.js`; liga preenchendo `js/supabase-config.js` e rodando `supabase/002_app_estado.sql`). Schema relacional para a v2 em `supabase/001_schema_bt.sql`.
 - **Usuários de teste:** `rafael@equipebrasil.com` / `123456` (treinador) · `joao@atleta.com` / `123456` (atleta)
 
