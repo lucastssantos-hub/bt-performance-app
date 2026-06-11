@@ -1,20 +1,35 @@
-# BT Performance — App (protótipo implementado)
+# BT Performance — App (MVP funcional)
 
-Implementação do protótipo de 21 telas exportado do Claude Design (`BT performance-handoff-2.zip`, jun/2026). Web app estático, sem build e sem dependências — um único `index.html` com HTML/CSS/JS vanilla.
+App mobile-web do BT Performance: 21 telas (design do handoff Claude Design, jun/2026) funcionando de ponta a ponta — login por papel, dados persistentes, formulários, cálculos simples e fluxos completos de treinador e atleta. **Sem motor de prescrição** (decisão da semana é administrativa).
 
-## Como rodar
+- **Produção:** https://bt-performance-app.vercel.app
+- **Stack:** HTML/CSS/JS vanilla (ES modules), sem build. Persistência em localStorage; Supabase é o próximo passo (`supabase/001_schema_bt.sql` pronto).
+- **Usuários de teste:** `rafael@equipebrasil.com` / `123456` (treinador) · `joao@atleta.com` / `123456` (atleta)
 
-- Abrir `index.html` direto no navegador, **ou**
-- Servir a pasta: `python3 -m http.server 4173 --directory bt-performance-lab/app` (há config `bt-performance-app` no `.claude/launch.json` da raiz).
+## Rodar local
 
-No desktop o app aparece dentro de uma moldura de iPhone (como no protótipo); em telas pequenas (< 520px) fica full-bleed, sem moldura e sem status bar falsa.
+```
+python3 -m http.server 4173 --directory bt-performance-lab/app
+```
 
-## O que está implementado
+(ES modules exigem servir por HTTP; abrir o index.html direto não funciona.)
 
-- **21 telas** em PT-BR, fiéis ao protótipo: login (papel Treinador/Atleta) + 12 telas do treinador (dashboard, atletas, perfil, avaliação, histórico, plano, decisão da semana, relatórios, calendário, viagens, notificações, config) + 8 do atleta (home, check-in wellness, treino, torneio, recovery, histórico, mensagens, perfil).
-- **Navegação real por pilha**: tabs resetam a pilha, cards empilham telas, botão voltar in-app e do navegador funcionam (History API).
-- **Toggle de papel** no login muda o destino do "Entrar" (treinador → dashboard, atleta → home).
+## Estrutura
 
-## O que ainda é mock
+| Arquivo | Papel |
+|---|---|
+| `index.html` | shell (moldura de phone no desktop, full-bleed no mobile) + CSS |
+| `js/db.js` | modelos, seed (datas relativas a hoje), CRUD, cálculos, auth |
+| `js/ui.js` | toasts, modais, confirmação, formatação |
+| `js/screens-coach.js` / `js/screens-athlete.js` | render das 21 telas |
+| `js/app.js` | router de pilha, ações, formulários |
+| `supabase/001_schema_bt.sql` | schema futuro (projeto `rkoqcvylamvnkxnaegna`) |
+| `docs/` | auditoria, MVP, botões/rotas, dados/modelos, checklist |
 
-Todos os dados são estáticos (os mesmos do protótipo: João Silva, Recovery 88, Itália Open etc.). Inputs de login, busca, check-in e chat não persistem nada. Próximo passo natural: ligar as telas aos CSVs de `../dados/` e à Decisão da Semana gerada pelo `/fechar-semana`.
+## Documentação
+
+- [docs/AUDITORIA_APP_ATUAL.md](docs/AUDITORIA_APP_ATUAL.md) — estado anterior e plano
+- [docs/MVP_FUNCIONAL.md](docs/MVP_FUNCIONAL.md) — o que existe, como rodar, fluxos
+- [docs/BOTOES_E_ROTAS.md](docs/BOTOES_E_ROTAS.md) — cada botão e seu status
+- [docs/DADOS_E_MODELOS.md](docs/DADOS_E_MODELOS.md) — modelos e persistência
+- [docs/CHECKLIST_VALIDACAO.md](docs/CHECKLIST_VALIDACAO.md) — 23 validações executadas
