@@ -1,5 +1,5 @@
 // app.js — router de pilha + despachante de ações + formulários (modais)
-import { db, auth, uid, todayISO, addDays, mondayOf, readinessFrom, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness } from './db.js';
+import { db, auth, syncRemote, uid, todayISO, addDays, mondayOf, readinessFrom, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness } from './db.js';
 import { toast, openModal, closeModal, confirmDialog, field, input, select, textarea, esc, fmtShort } from './ui.js';
 import * as C from './screens-coach.js';
 import * as A from './screens-athlete.js';
@@ -383,3 +383,7 @@ document.addEventListener('click', (e) => {
 
 history.replaceState({ i: state.stack.length }, '');
 render();
+
+// Espelho remoto: renderiza local primeiro, puxa a nuvem em background e re-renderiza se mudou.
+window.addEventListener('btp-sync-error', () => toast('Nuvem indisponível — salvando localmente', 'warn'));
+syncRemote().then((mudou) => { if (mudou) render(); });

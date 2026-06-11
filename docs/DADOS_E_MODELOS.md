@@ -4,7 +4,8 @@
 
 - **Persistência atual:** `localStorage` chave `btperf_db_v1` (JSON único com todas as coleções). Sessão de login em `btperf_session_v1`. Navegação (tela atual) em `sessionStorage btperf_nav_v1`.
 - **Seed:** gerado em `js/db.js → buildSeed()` no primeiro acesso (datas relativas a hoje — o app nunca abre "velho"). Para resetar: `localStorage.clear()` no console.
-- **Futuro:** Supabase projeto `rkoqcvylamvnkxnaegna` — schema equivalente (PT-BR, prefixo `bt_`) já escrito em `supabase/001_schema_bt.sql`. A camada `db.js` é o único ponto de acesso a dados; trocar o backend não toca as telas.
+- **Espelho remoto (opcional):** `js/remote.js` sincroniza o JSON inteiro com a tabela `bt_app_estado` no Supabase (projeto `rkoqcvylamvnkxnaegna`; SQL em `supabase/002_app_estado.sql`). Local-first: pull no boot, push debounced a cada gravação, last-write-wins. Desligado enquanto `js/supabase-config.js` estiver vazio; sem nuvem o app degrada para localStorage com um aviso. Passos para ligar: ver README.
+- **v2 (dados reais):** schema relacional PT-BR (prefixo `bt_`) com RLS por papel já escrito em `supabase/001_schema_bt.sql` + Supabase Auth. A camada `db.js` é o único ponto de acesso a dados; trocar o backend não toca as telas.
 
 ## Modelos
 

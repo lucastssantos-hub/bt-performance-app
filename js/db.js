@@ -1,6 +1,7 @@
-// db.js — camada de dados do MVP (localStorage estruturado).
-// Troca futura: adaptador Supabase (schema pronto em supabase/001_schema_bt.sql).
+// db.js — camada de dados do MVP (localStorage estruturado + espelho remoto opcional).
+// Sync Supabase: js/remote.js (liga ao preencher js/supabase-config.js; tabela em supabase/002_app_estado.sql).
 // Modelos seguem docs/DADOS_E_MODELOS.md. Derivados (readiness, carga, status) são sempre calculados.
+import { remoteEnabled, pullEstado, schedulePush } from './remote.js';
 
 const KEY = 'btperf_db_v1';
 const SES = 'btperf_session_v1';
@@ -119,7 +120,22 @@ function load() {
   if (!cache || !cache.users) { cache = buildSeed(); persist(); }
   return cache;
 }
-function persist() { localStorage.setItem(KEY, JSON.stringify(cache)); }
+function persist() { localStorage.setItem(KEY, JSON.stringify(cache)); schedulePush(cache); }
+
+// Puxa o estado remoto no boot (se configurado). Retorna true se o estado local mudou.
+export async function syncRemote() {
+  if (!remoteEnabled()) return false;
+  try {
+    const estado = await pullEstado();
+    if (estado && estado.users) {
+      cache = estado;
+      localStorage.setItem(KEY, JSON.stringify(cache));
+      return true;
+    }
+    if (estado === null) schedulePush(load()); // primeira vez: sobe o estado local/seed
+  } catch (err) { console.warn('[db] sem nuvem no boot:', err && err.message); }
+  return false;
+}
 
 export const db = {
   all: () => load(),
