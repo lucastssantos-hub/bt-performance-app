@@ -29,3 +29,10 @@ Executado em 2026-06-11 via automação no preview (DOM real, sem mock de teste)
 | 23 | Build final roda sem erro (estático, zero erros de console em todos os fluxos) | ✅ |
 
 Extras verificados: decisão da semana aplicada altera plannedLoad (+10% PROGREDIR na Ana; MANTER no João por torneio próximo — comportamento correto); check-in ruim gera notificação ao treinador; ações destrutivas pedem confirmação; placeholders mostram "integração futura"; datas do seed são relativas (app nunca abre desatualizado); tela de erro amigável se um render falhar.
+
+## Re-auditoria 2026-06-11
+
+Os 23 itens foram re-executados no preview (fluxo treinador completo + fluxo atleta completo + refresh + logout). Zero erros/warnings de console. Duas correções aplicadas:
+
+1. **Tipo do relatório de equipe** — gerar para "Equipe toda" gravava `type: individual` (default do select). Agora o tipo é derivado da seleção: equipe → `equipe`, atleta → `individual`, mensal mantém `mensal`.
+2. **Decisão aplicada sem sessões** — aplicar PROGREDIR/REDUZIR num atleta sem sessões planejadas na semana mostrava "aplicado a 0 sessão(ões)". Agora mostra "registrado — sem sessões planejadas nesta semana".

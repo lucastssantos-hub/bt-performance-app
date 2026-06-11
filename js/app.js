@@ -187,7 +187,8 @@ function formReport() {
         content = `Equipe Brasil · ${d.period === 'semana' ? 'semana atual' : 'últimos 30 dias'}. Prontidão média ${team}. Carga total ${total} UA. ${d.notes || ''}`.trim();
       }
       const title = a ? `Relatório individual · ${a.name.split(' ')[0]} ${a.name.split(' ')[1] ? a.name.split(' ')[1][0] + '.' : ''}` : 'Relatório da equipe';
-      db.insert('reports', { athleteId: d.athleteId || null, title, type: d.type, createdAt: Date.now(), content });
+      const type = d.type === 'mensal' ? 'mensal' : (a ? 'individual' : 'equipe');
+      db.insert('reports', { athleteId: d.athleteId || null, title, type, createdAt: Date.now(), content });
       closeModal(); toast('Relatório gerado'); render();
     }
   });
@@ -249,7 +250,7 @@ const actions = {
       const mon = mondayOf(todayISO());
       const planned = db.list('sessions', s => s.athleteId === a.id && s.status === 'PLANNED' && s.date >= mon && s.date <= addDays(mon, 6));
       planned.forEach(s => db.update('sessions', s.id, { plannedLoad: Math.round(s.plannedLoad * factor) }));
-      toast(`${dec} aplicado a ${planned.length} sessão(ões)`);
+      toast(planned.length ? `${dec} aplicado a ${planned.length} sessão(ões)` : `${dec} registrado — sem sessões planejadas nesta semana`);
     } else toast(`Decisão ${dec} registrada`);
     db.all().decisions[a.id] = { decision: dec, note: `Aplicado manualmente em ${fmtShort(todayISO())}.`, appliedAt: Date.now() };
     db.save(); tab('coachPlan');
