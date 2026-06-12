@@ -180,9 +180,13 @@ export function coachAssessment(ctx) {
     <div style="display:flex;flex-direction:column;gap:10px;">
       ${bar('Salto vertical (CMJ)', cur.cmj, 'cm', Math.min(100, cur.cmj * 2), '#34E0A1', d('cmj', 'up'))}
       ${cur.sj ? bar('Squat jump (SJ)', cur.sj, 'cm', Math.min(100, cur.sj * 2), '#34E0A1', d('sj', 'up')) : ''}
-      ${bar('Sprint 10m', cur.sprint10m, 's', Math.min(100, Math.max(10, 100 - (cur.sprint10m - 1.4) * 90)), '#34E0A1', d('sprint10m', 'down'))}
-      ${bar('Agilidade 5-0-5', cur.agility505, 's', Math.min(100, Math.max(10, 100 - (cur.agility505 - 2.0) * 80)), '#5B9DFF', d('agility505', 'down'))}
-      ${bar('Mobilidade tornozelo', cur.ankleMobility, '°', Math.min(100, cur.ankleMobility * 1.6), cur.ankleMobility < 35 ? '#FFC24B' : '#34E0A1', d('ankleMobility', 'up'))}
+      ${cur.sprint5m ? bar('Sprint 5m', cur.sprint5m, 's', Math.min(100, Math.max(10, 100 - (cur.sprint5m - 0.9) * 120)), '#34E0A1', d('sprint5m', 'down')) : ''}
+      ${cur.sprint10m ? bar('Sprint 10m', cur.sprint10m, 's', Math.min(100, Math.max(10, 100 - (cur.sprint10m - 1.4) * 90)), '#34E0A1', d('sprint10m', 'down')) : ''}
+      ${cur.mbLateralD ? bar('MB Lateral D', cur.mbLateralD, 'm', Math.min(100, cur.mbLateralD * 22), '#5B9DFF', d('mbLateralD', 'up')) : ''}
+      ${cur.mbLateralE ? bar('MB Lateral E', cur.mbLateralE, 'm', Math.min(100, cur.mbLateralE * 22), '#5B9DFF', d('mbLateralE', 'up')) : ''}
+      ${cur.mbLateralD && cur.mbLateralE ? `<div class="card" style="padding:12px 16px;${cur.mbAsym > 15 ? 'border-color:rgba(255,93,93,.3);' : cur.mbAsym > 10 ? 'border-color:rgba(255,194,75,.25);' : ''}"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:14px;font-weight:600;">Assimetria MB</span><span style="font-family:'Space Grotesk';font-weight:700;font-size:16px;color:${cur.mbAsym > 15 ? '#FF5D5D' : cur.mbAsym > 10 ? '#FFC24B' : '#34E0A1'};">${cur.mbAsym}%</span></div><div style="font-size:11.5px;color:#5A6472;margin-top:4px;">${cur.mbAsym > 15 ? '⚠ assimetria alta — avaliar' : cur.mbAsym > 10 ? '⚡ assimetria moderada' : '✓ simétrico'}</div></div>` : ''}
+      ${cur.agility505 ? bar('5-0-5 areia', cur.agility505, 's', Math.min(100, Math.max(10, 100 - (cur.agility505 - 2.0) * 80)), '#8A94A3', d('agility505', 'down')) : ''}
+      ${cur.ankleMobility ? bar('Mobilidade tornozelo', cur.ankleMobility, '°', Math.min(100, cur.ankleMobility * 1.6), cur.ankleMobility < 35 ? '#FFC24B' : '#34E0A1', d('ankleMobility', 'up')) : ''}
     </div>`;
   }
   return `<div class="pagepad" style="padding-top:58px;">

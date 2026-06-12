@@ -142,10 +142,12 @@ function prescToSession(r, bibS, bibE) {
 // índice físico exibido nas telas — derivado em memória, NUNCA gravado (regra do lab)
 function generalIndexOf(a) {
   let ix = 0;
-  if (a.cmj) ix += a.cmj * 1.2;
-  if (a.sprint10m) ix += (2.4 - a.sprint10m) * 40;
-  if (a.agility505) ix += (3 - a.agility505) * 25;
-  if (a.ankleMobility) ix += a.ankleMobility * 0.4;
+  if (a.cmj) ix += a.cmj * 1.0;
+  if (a.sprint10m) ix += (2.4 - a.sprint10m) * 35;
+  if (a.sprint5m) ix += (1.4 - a.sprint5m) * 30;
+  if (a.mbLateralD && a.mbLateralE) ix += ((a.mbLateralD + a.mbLateralE) / 2) * 3 - (a.mbAsym || 0) * 0.5;
+  if (a.agility505) ix += (3 - a.agility505) * 15;
+  if (a.ankleMobility) ix += a.ankleMobility * 0.3;
   return Math.max(0, Math.min(100, Math.round(ix)));
 }
 
@@ -226,11 +228,14 @@ async function hydrate() {
   const avalById = {};
   (aval || []).forEach(r => {
     const k = r.avaliacao_id || (r.atleta_id + '|' + r.data);
-    const g = avalById[k] || (avalById[k] = { id: k, athleteId: r.atleta_id, date: r.data, cmj: 0, sj: 0, sprint10m: 0, agility505: 0, ankleMobility: 0, notes: '' });
+    const g = avalById[k] || (avalById[k] = { id: k, athleteId: r.atleta_id, date: r.data, cmj: 0, sj: 0, sprint5m: 0, sprint10m: 0, mbLateralD: 0, mbLateralE: 0, mbAsym: 0, agility505: 0, ankleMobility: 0, notes: '' });
     const v = r.valor != null ? +r.valor : 0;
     if (r.teste === 'cmj') g.cmj = v;
     else if (r.teste === 'sj') g.sj = v;
+    else if (r.teste === 'sprint_5m') g.sprint5m = v;
     else if (r.teste === 'sprint_10m') g.sprint10m = v;
+    else if (r.teste === 'mb_lateral_d') g.mbLateralD = v;
+    else if (r.teste === 'mb_lateral_e') g.mbLateralE = v;
     else if (r.teste === 'agilidade_505') g.agility505 = v;
     else if (r.teste === 'mobilidade_tornozelo') g.ankleMobility = v;
     if (r.observacoes && !g.notes) g.notes = r.observacoes;
@@ -375,7 +380,10 @@ const REMOTE = {
         const add = (teste, variavel, valor, unidade) => { if (valor) rows.push({ avaliacao_id: a.id, atleta_id: a.athleteId, data: a.date, teste, variavel, valor, unidade, observacoes: rows.length ? null : (a.notes || null) }); };
         add('cmj', 'altura', a.cmj, 'cm');
         add('sj', 'altura', a.sj, 'cm');
+        add('sprint_5m', 'tempo', a.sprint5m, 's');
         add('sprint_10m', 'tempo', a.sprint10m, 's');
+        add('mb_lateral_d', 'distancia', a.mbLateralD, 'm');
+        add('mb_lateral_e', 'distancia', a.mbLateralE, 'm');
         add('agilidade_505', 'tempo', a.agility505, 's');
         add('mobilidade_tornozelo', 'amplitude', a.ankleMobility, 'graus');
         if (rows.length) await restPost('bt_avaliacoes', rows, 'return=minimal');

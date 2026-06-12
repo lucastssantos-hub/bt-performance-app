@@ -75,20 +75,45 @@ function formAssessment() {
   const a = db.get('athletes', state.ctx.athleteId) || db.list('athletes')[0];
   openModal(`Nova avaliação · ${a.name.split(' ')[0]}`, [
     field('Data', input('date', { type: 'date', value: todayISO() })),
+    `<div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#FF6A3D;margin:6px 0 2px;">SALTOS (obrigatório)</div>`,
     `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`,
     field('CMJ (cm)', input('cmj', { type: 'number', step: '0.1', min: 0 })),
     field('SJ (cm)', input('sj', { type: 'number', step: '0.1', min: 0 })),
+    `</div>`,
+    `<div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#FF6A3D;margin:10px 0 2px;">SPRINTS (obrigatório)</div>`,
+    `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`,
+    field('Sprint 5m (s)', input('sprint5m', { type: 'number', step: '0.01', min: 0 })),
     field('Sprint 10m (s)', input('sprint10m', { type: 'number', step: '0.01', min: 0 })),
-    field('Agilidade 5-0-5 (s)', input('agility505', { type: 'number', step: '0.01', min: 0 })),
+    `</div>`,
+    `<div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#FF6A3D;margin:10px 0 2px;">MB LATERAL 3kg — assimetria (obrigatório)</div>`,
+    `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`,
+    field('MB Lateral D (m)', input('mbLateralD', { type: 'number', step: '0.01', min: 0 })),
+    field('MB Lateral E (m)', input('mbLateralE', { type: 'number', step: '0.01', min: 0 })),
+    `</div>`,
+    `<div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#8A94A3;margin:10px 0 2px;">OPCIONAIS</div>`,
+    `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`,
+    field('5-0-5 areia (s)', input('agility505', { type: 'number', step: '0.01', min: 0, required: false })),
     field('Mob. tornozelo (°)', input('ankleMobility', { type: 'number', step: '1', min: 0, required: false })),
     `</div>`,
     field('Observações', textarea('notes', { placeholder: 'opcional' })),
   ].join(''), {
     onSubmit(d) {
-      const cmj = +d.cmj, sj = +d.sj, spr = +d.sprint10m, agi = +d.agility505, ank = +d.ankleMobility || 0;
+      const cmj = +d.cmj, sj = +d.sj, spr5 = +d.sprint5m, spr10 = +d.sprint10m;
+      const mbD = +d.mbLateralD, mbE = +d.mbLateralE;
+      const agi = +d.agility505 || 0, ank = +d.ankleMobility || 0;
+      if (!cmj) return toast('CMJ obrigatório.', 'err');
+      if (!sj) return toast('SJ obrigatório.', 'err');
+      if (!spr5) return toast('Sprint 5m obrigatório.', 'err');
+      if (!spr10) return toast('Sprint 10m obrigatório.', 'err');
+      if (!mbD || !mbE) return toast('MB Lateral D e E obrigatórios.', 'err');
       if (sj && cmj && sj > cmj) return toast('SJ maior que CMJ — confira a coleta (canônico §6).', 'err');
-      const generalIndex = Math.max(0, Math.min(100, Math.round(cmj * 1.2 + (2.4 - spr) * 40 + (3 - agi) * 25 + ank * 0.4)));
-      db.insert('assessments', { id: `${a.id}-${d.date}`, athleteId: a.id, date: d.date, generalIndex, cmj, sj, sprint10m: spr, agility505: agi, ankleMobility: ank, notes: d.notes || '' });
+      const mbAsym = mbD && mbE ? Math.round(Math.abs(mbD - mbE) / Math.max(mbD, mbE) * 100) : 0;
+      const generalIndex = Math.max(0, Math.min(100, Math.round(
+        cmj * 1.0 + (2.4 - spr10) * 35 + (1.4 - spr5) * 30 + ((mbD + mbE) / 2) * 3 - mbAsym * 0.5
+      )));
+      db.insert('assessments', { id: `${a.id}-${d.date}`, athleteId: a.id, date: d.date, generalIndex,
+        cmj, sj, sprint5m: spr5, sprint10m: spr10, mbLateralD: mbD, mbLateralE: mbE, mbAsym,
+        agility505: agi, ankleMobility: ank, notes: d.notes || '' });
       closeModal(); toast('Avaliação salva'); render();
     }
   });
