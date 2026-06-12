@@ -88,6 +88,11 @@ export function coachDash() {
         <div class="tap" data-action="go" data-screen="coachNotifications" style="position:relative;width:40px;height:40px;border-radius:12px;background:#14181F;display:flex;align-items:center;justify-content:center;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#F4F6F8" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>${unread ? '<div style="position:absolute;top:9px;right:10px;width:7px;height:7px;border-radius:50%;background:#FF5D5D;"></div>' : ''}</div>
         <div class="tap" data-action="tab" data-screen="coachSettings">${avatar(me.avatarInitials, 44, 'linear-gradient(135deg,#FF6A3D,#FF9A3D)', '#0B0E12')}</div>
       </div></div>
+    <div class="tap" data-action="tab" data-screen="coachRadar" style="background:linear-gradient(135deg,#0F1820,#0D1015);border:1px solid rgba(255,93,93,.2);border-radius:18px;padding:15px 17px;margin-bottom:10px;display:flex;align-items:center;gap:14px;">
+      <div style="width:40px;height:40px;border-radius:12px;background:rgba(255,93,93,.12);display:flex;align-items:center;justify-content:center;">${ICONS.warn('#FF5D5D')}</div>
+      <div style="flex:1;"><div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#FF5D5D;margin-bottom:2px;">RADAR DE EVIDÊNCIAS</div>
+        <div style="font-size:13.5px;color:#C7CFDA;">${enriched.filter(x => x.st === 'ATTENTION' || x.st === 'INJURED').length} atleta(s) merecem atenção agora</div></div>
+      ${ICONS.chev}</div>
     <div class="tap" data-action="go" data-screen="coachDecision" style="background:#0D1015;border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:18px;margin-bottom:16px;display:flex;align-items:center;gap:18px;">
       ${ring(team, '#FF6A3D', 74, 58, 22)}
       <div style="flex:1;"><div style="font-size:11px;font-weight:700;letter-spacing:.12em;color:#5A6472;margin-bottom:4px;">PRONTIDÃO DA EQUIPE</div>
@@ -423,6 +428,234 @@ export function coachNotifications() {
     ${today.length ? `<div class="seclabel" style="margin:0 4px 12px;">HOJE</div><div style="display:flex;flex-direction:column;gap:9px;margin-bottom:18px;">${today.map(row).join('')}</div>` : ''}
     ${older.length ? `<div class="seclabel" style="margin:0 4px 12px;">ANTERIORES</div><div style="display:flex;flex-direction:column;gap:9px;">${older.map(row).join('')}</div>` : ''}
     ${!list.length ? '<div style="text-align:center;color:#5A6472;font-size:13.5px;padding:26px 0;">Sem notificações.</div>' : ''}
+  </div>`;
+}
+
+// ── RADAR DE EVIDÊNCIAS v1 ───────────────────────────────────────────────────
+const RADAR_CAT_META = {
+  RISCO:       { color: '#FF5D5D', bg: 'rgba(255,93,93,',   label: 'RISCO' },
+  ATENÇÃO:     { color: '#FFC24B', bg: 'rgba(255,194,75,',  label: 'ATENÇÃO' },
+  OPORTUNIDADE:{ color: '#34E0A1', bg: 'rgba(52,224,161,',  label: 'OPORTUNIDADE' },
+};
+const RADAR_CONF_COLOR = { ALTA: '#34E0A1', MÉDIA: '#FFC24B', BAIXA: '#8A94A3' };
+
+function radarClassify(a) {
+  const today = todayISO();
+  const c = latestCheckin(a.id);
+  const nt = nextTournament(a.id);
+  const assessments = db.list('assessments', x => x.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date));
+  const assessmentAge = assessments[0] ? diffDays(today, assessments[0].date) : 9999;
+  const lastDoneSessions = db.list('sessions', s => s.athleteId === a.id && s.status === 'COMPLETED' && s.date >= addDays(today, -7)).sort((x, y) => y.date.localeCompare(x.date));
+  const lastPSE = lastDoneSessions[0] ? lastDoneSessions[0].rpeFinal : null;
+  // Fix 1: dor persistente — varre os 7 dias do cache hidratado e detecta 3 consecutivos ≥ 3
+  const last7ck = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(today, -i);
+    last7ck.push(db.list('checkins', x => x.athleteId === a.id && x.date === d)[0] || null);
+  }
+  const adherence7 = last7ck.filter(Boolean).length;
+  let persistentPain = false, consecutivePain = 0, persistentPainNums = '';
+  for (const ck of last7ck) {
+    if (ck && ck.painScore >= 3) {
+      consecutivePain++;
+      if (consecutivePain >= 3) {
+        persistentPain = true;
+        persistentPainNums = last7ck.slice(0, consecutivePain).map(x => x ? x.painScore + '/10' : '—').join(' · ');
+        break;
+      }
+    } else {
+      consecutivePain = 0;
+    }
+  }
+
+  const r = c ? c.readinessScore : (a.recoveryScore || 0);
+  const banda = c ? c.banda : null;
+  const isVermelho = banda === 'VERMELHO' || (banda == null && r > 0 && r < 65);
+  const isAmarelo  = banda === 'AMARELO'  || (banda == null && r >= 65 && r < 80);
+  const isVerde    = banda === 'VERDE'    || (banda == null && r >= 80);
+
+  const signals = [];
+
+  // RISCO
+  if (c && c.painScore >= 6)
+    signals.push({ severity: 'RISCO', type: 'dor_alta', text: `Dor alta${c.painLocation ? ' — ' + c.painLocation : ''}`, numbers: `${c.painScore}/10` });
+  if (c && c.alteraMovimento)
+    signals.push({ severity: 'RISCO', type: 'dor_altera', text: `Dor altera movimento${c.painLocation ? ' — ' + c.painLocation : ''}`, numbers: `${c.painScore}/10` });
+  if (persistentPain)
+    signals.push({ severity: 'RISCO', type: 'dor_persistente', text: `Dor ≥ 3/10 por 3 dias consecutivos`, numbers: persistentPainNums });
+  if (isVermelho)
+    signals.push({ severity: 'RISCO', type: 'prontidao_vermelha', text: `Prontidão VERMELHA`, numbers: `${c && c.prontidao != null ? c.prontidao : '—'}/25` });
+  if (nt && diffDays(nt.startDate, today) <= 7 && c && c.painScore >= 3)
+    signals.push({ severity: 'RISCO', type: 'torneio_dor', text: `Torneio em ${diffDays(nt.startDate, today)} dias com dor relevante`, numbers: `${diffDays(nt.startDate, today)} dias · dor ${c.painScore}/10` });
+
+  // ATENÇÃO
+  if (isAmarelo)
+    signals.push({ severity: 'ATENÇÃO', type: 'prontidao_amarela', text: `Prontidão AMARELA`, numbers: `${c && c.prontidao != null ? c.prontidao : '—'}/25` });
+  if (!c)
+    signals.push({ severity: 'ATENÇÃO', type: 'sem_dados', text: `Sem check-in registrado`, numbers: `0 entradas` });
+  else if (adherence7 <= 2)
+    signals.push({ severity: 'ATENÇÃO', type: 'adesao_baixa', text: `Baixa adesão ao monitoramento`, numbers: `${adherence7}/7 dias` });
+  if (lastPSE != null && lastPSE > 8)
+    signals.push({ severity: 'ATENÇÃO', type: 'pse_alto', text: `PSE alto na última sessão`, numbers: `PSE ${lastPSE}/10` });
+  if (assessmentAge > 60)
+    signals.push({ severity: 'ATENÇÃO', type: 'avaliacao_vencida', text: `Avaliação vencida`, numbers: assessmentAge === 9999 ? 'nunca realizada' : `${assessmentAge} dias` });
+
+  // OPORTUNIDADE
+  if (isVerde)
+    signals.push({ severity: 'OPORTUNIDADE', type: 'prontidao_verde', text: `Prontidão VERDE`, numbers: `${c && c.prontidao != null ? c.prontidao : '—'}/25` });
+  if (!c || c.painScore === 0)
+    signals.push({ severity: 'OPORTUNIDADE', type: 'sem_dor', text: `Sem dor registrada`, numbers: `—` });
+  if (assessmentAge <= 30)
+    signals.push({ severity: 'OPORTUNIDADE', type: 'avaliacao_recente', text: `Avaliação recente`, numbers: `${assessmentAge} dias` });
+
+  // categoria dominante
+  const hasRisco = signals.some(s => s.severity === 'RISCO');
+  const hasAtencao = signals.some(s => s.severity === 'ATENÇÃO');
+  const category = hasRisco ? 'RISCO' : hasAtencao ? 'ATENÇÃO' : 'OPORTUNIDADE';
+
+  // Fix 2: confiança — regra explícita por adherence7 + força da evidência
+  const nRisco = signals.filter(s => s.severity === 'RISCO').length;
+  const nAtencao = signals.filter(s => s.severity === 'ATENÇÃO').length;
+  const hasStrongEvidence = nRisco >= 1;
+  let confidence;
+  if (!c || adherence7 < 3) {
+    confidence = 'BAIXA';
+  } else if (adherence7 >= 5 && hasStrongEvidence) {
+    confidence = 'ALTA';
+  } else if (adherence7 >= 5 && category === 'OPORTUNIDADE' && isVerde) {
+    confidence = 'ALTA';
+  } else if (adherence7 >= 3) {
+    confidence = 'MÉDIA';
+  } else {
+    confidence = 'BAIXA';
+  }
+
+  // sugestão inicial
+  const sugAction = category === 'RISCO'
+    ? ((c && c.painScore >= 6) || (c && c.alteraMovimento) || persistentPain ? 'ENCAMINHAR' : 'REDUZIR')
+    : category === 'ATENÇÃO'
+      ? (isAmarelo ? 'MANTER' : 'REAVALIAR')
+      : 'PROGREDIR';
+
+  const primarySignal = signals.find(s => s.severity === category) || signals[0] || null;
+  return { category, signals, confidence, sugAction, primarySignal };
+}
+
+const SUG_LABEL = {
+  PROGREDIR: 'PROGREDIR CARGA +10%', MANTER: 'MANTER PLANO', REDUZIR: 'REDUZIR CARGA −20%',
+  DESCARREGAR: 'SEMANA DE DESCARGA', REAVALIAR: 'REAVALIAR · ANTECIPAR TESTES', ENCAMINHAR: 'ENCAMINHAR · FISIO/MÉDICO',
+};
+
+export function coachRadar() {
+  const athletes = db.list('athletes');
+  if (!athletes.length) return `<div class="pagepad" style="padding-top:58px;">${header('Radar de Evidências', 'v1')}<div style="text-align:center;color:#5A6472;font-size:13.5px;padding:30px 0;">Nenhum atleta cadastrado.</div></div>`;
+  const classified = athletes.map(a => ({ a, ...radarClassify(a) })).sort((x, y) => {
+    const ord = { RISCO: 0, 'ATENÇÃO': 1, OPORTUNIDADE: 2 };
+    return ord[x.category] - ord[y.category];
+  });
+  const dec = db.all().decisions || {};
+  let body = '';
+  ['RISCO', 'ATENÇÃO', 'OPORTUNIDADE'].forEach(cat => {
+    const list = classified.filter(x => x.category === cat);
+    if (!list.length) return;
+    const m = RADAR_CAT_META[cat];
+    const secIcon = cat === 'OPORTUNIDADE' ? ICONS.check(m.color) : ICONS.warn(m.color);
+    body += `<div style="display:flex;align-items:center;gap:6px;margin:16px 4px 10px;">
+      ${secIcon}<span style="font-size:11px;font-weight:700;letter-spacing:.1em;color:${m.color};">${cat} · ${list.length}</span></div>`;
+    body += list.map(({ a, confidence, sugAction, primarySignal }) => {
+      const decided = dec[a.id] ? `<div style="font-size:11px;color:#34E0A1;">✓</div>` : '';
+      return `<div class="tap" data-action="radar-open" data-arg="${a.id}" style="background:#0D1015;border:1px solid ${m.bg}.2);border-radius:16px;padding:15px 16px;margin-bottom:9px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+          <div style="position:relative;">${avatar(initialsOf(a.name))}<div style="position:absolute;bottom:-1px;right:-1px;width:12px;height:12px;border-radius:50%;background:${m.color};border:2px solid #0D1015;"></div></div>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:15px;">${esc(a.name)}</div>
+            <div style="font-size:12px;color:#8A94A3;">${primarySignal ? esc(primarySignal.text) : 'sem evidência principal'}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">${decided}<div style="font-size:11px;font-weight:700;color:${RADAR_CONF_COLOR[confidence]};">${confidence}</div><div style="font-size:10px;color:#5A6472;">confiança</div></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);padding-top:10px;">
+          <div style="font-size:12.5px;color:#8A94A3;">${primarySignal ? `<span style="color:${m.color};font-weight:700;">${esc(primarySignal.numbers)}</span> · ` : ''}Sugestão: <span style="color:#F4F6F8;font-weight:600;">${sugAction}</span></div>
+          <div style="font-size:12px;color:#FF6A3D;font-weight:700;">Ver detalhes →</div>
+        </div>
+      </div>`;
+    }).join('');
+  });
+  return `<div class="pagepad" style="padding-top:58px;padding-bottom:100px;">
+    ${header('Radar de Evidências', 'baseado em evidências · decisão do treinador')}
+    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:13px;padding:11px 14px;margin-bottom:6px;font-size:12.5px;color:#8A94A3;line-height:1.5;">
+      O sistema apresenta evidências e sugere uma direção. <span style="color:#F4F6F8;">A decisão final é sempre do treinador.</span>
+    </div>
+    ${body}
+  </div>${tabbar('coachDash', 'TRAINER')}`;
+}
+
+export function coachRadarDetail(ctx) {
+  const a = db.get('athletes', ctx.athleteId) || db.list('athletes')[0];
+  const { category, signals, confidence, sugAction } = radarClassify(a);
+  const dec = (db.all().decisions || {})[a.id];
+  const m = RADAR_CAT_META[category];
+  const c = latestCheckin(a.id);
+  const wk = weekLoad(a.id, mondayOf(todayISO()));
+  const prevWk = weekLoad(a.id, addDays(mondayOf(todayISO()), -7));
+  const nt = nextTournament(a.id);
+  const assessments = db.list('assessments', x => x.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date));
+
+  const evidHtml = signals.length
+    ? signals.map(s => {
+        const col = s.severity === 'RISCO' ? '#FF5D5D' : s.severity === 'ATENÇÃO' ? '#FFC24B' : '#34E0A1';
+        const ico = s.severity === 'OPORTUNIDADE' ? ICONS.check(col) : ICONS.warn(col);
+        return `<div style="display:flex;align-items:flex-start;gap:11px;background:${col}10;border:1px solid ${col}28;border-radius:11px;padding:11px 13px;">
+          <div style="flex-shrink:0;margin-top:1px;">${ico}</div>
+          <div style="flex:1;">
+            <div style="font-size:13.5px;font-weight:600;color:#F4F6F8;">${esc(s.text)}</div>
+            <div style="font-size:12px;color:#8A94A3;margin-top:2px;">${esc(s.numbers)}</div>
+          </div>
+          <div style="font-size:10px;font-weight:700;color:${col};background:${col}18;padding:3px 8px;border-radius:6px;flex-shrink:0;">${s.severity}</div>
+        </div>`;
+      }).join('')
+    : `<div style="font-size:13px;color:#5A6472;">Dados insuficientes para gerar evidências.</div>`;
+
+  const histItems = [];
+  if (c) histItems.push(`Último check-in: ${fmtShort(c.date)} · prontidão ${c.prontidao != null ? c.prontidao : '—'}/25 · dor ${c.painScore}/10`);
+  if (wk) histItems.push(`Carga semana: ${wk.toLocaleString('pt-BR')} UA${prevWk ? ` (ant. ${prevWk.toLocaleString('pt-BR')} UA)` : ''}`);
+  if (nt) histItems.push(`Próx. torneio: ${esc(nt.name)} em ${diffDays(nt.startDate, todayISO())} dias`);
+  if (assessments[0]) histItems.push(`Última avaliação: ${fmtShort(assessments[0].date)} · índice ${assessments[0].generalIndex}`);
+  const histHtml = histItems.length
+    ? histItems.map(t => `<div style="font-size:13px;color:#C7CFDA;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);">${t}</div>`).join('')
+    : `<div style="font-size:13px;color:#5A6472;">Sem histórico disponível.</div>`;
+
+  const decBadge = dec
+    ? `<div style="background:rgba(52,224,161,.08);border:1px solid rgba(52,224,161,.22);border-radius:13px;padding:13px 16px;margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#34E0A1;margin-bottom:4px;">DECISÃO REGISTRADA ✓</div>
+        <div style="font-size:14px;color:#F4F6F8;font-weight:700;">${esc(dec.decision)}</div>
+        ${dec.note ? `<div style="font-size:12.5px;color:#8A94A3;margin-top:3px;">${esc(dec.note)}</div>` : ''}
+      </div>` : '';
+
+  return `<div class="pagepad" style="padding-top:58px;padding-bottom:80px;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+    <div style="position:absolute;inset:0;background:radial-gradient(400px 280px at 50% 10%,${m.bg}.08),transparent 60%);pointer-events:none;"></div>
+    <div style="position:relative;">
+    ${header(esc(a.name), `Radar · ${m.label}`)}
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:18px;">
+      <div style="padding:6px 14px;border-radius:999px;background:${m.bg}.15);font-size:12px;font-weight:700;color:${m.color};">${m.label}</div>
+      <div style="padding:6px 14px;border-radius:999px;background:${RADAR_CONF_COLOR[confidence]}18;font-size:12px;font-weight:700;color:${RADAR_CONF_COLOR[confidence]};">Confiança ${confidence}</div>
+    </div>
+    <div style="background:#0D1015;border:1px solid ${m.bg}.22);border-radius:18px;padding:17px;margin-bottom:13px;">
+      <div style="padding:8px 15px;border-radius:999px;background:${m.bg}.18);display:inline-flex;margin-bottom:14px;">
+        <span style="font-size:13px;font-weight:800;color:${m.color};">SUGESTÃO: ${esc(SUG_LABEL[sugAction] || sugAction)}</span>
+      </div>
+      <div class="seclabel" style="letter-spacing:.1em;margin-bottom:10px;">EVIDÊNCIAS</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">${evidHtml}</div>
+    </div>
+    <div style="background:#0D1015;border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:16px;margin-bottom:14px;">
+      <div class="seclabel" style="letter-spacing:.1em;margin-bottom:8px;">HISTÓRICO RECENTE</div>
+      ${histHtml}
+    </div>
+    ${decBadge}
+    <div style="display:flex;gap:11px;">
+      <button class="tap btn-primary" data-action="radar-confirm" data-arg="${sugAction}" data-confidence="${confidence}" style="flex:1;">Confirmar decisão</button>
+      <button class="tap btn-dark" data-action="radar-alter" style="padding:15px 18px;width:auto;">Alterar</button>
+    </div>
+    </div>
   </div>`;
 }
 

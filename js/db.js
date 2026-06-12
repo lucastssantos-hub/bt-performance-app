@@ -485,7 +485,7 @@ export async function saveCheckin(athleteId, ck) {
 }
 
 // ── decisão da semana: 6 valores oficiais + evidências/inputs/versão ─────────
-export function saveDecision(athleteId, { sugerida, final, note }) {
+export function saveDecision(athleteId, { sugerida, final, note, confianca }) {
   const monday = mondayOf(todayISO());
   const raw = (cache.decisoesRaw || {})[athleteId];
   const decSug = sugerida || (raw && raw.decisao_sugerida) || final;
@@ -499,7 +499,7 @@ export function saveDecision(athleteId, { sugerida, final, note }) {
   if (nt) evidencias.push({ sinal: 'proximo_torneio', valor: diffDays(nt.startDate, todayISO()), nome: nt.name });
   const row = {
     atleta_id: athleteId, semana_inicio: monday,
-    decisao_sugerida: decSug, confianca: (raw && raw.confianca) || 'BAIXA', // heurística do app, sem motor
+    decisao_sugerida: decSug, confianca: confianca || (raw && raw.confianca) || 'BAIXA',
     justificativa: note || null, evidencias,
     inputs: {
       prontidao: c ? c.prontidao : null, prontidao_versao: 'v1-subjetiva',

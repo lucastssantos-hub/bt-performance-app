@@ -9,7 +9,8 @@ const screens = {
   login: A.login,
   coachDash: C.coachDash, coachAthletes: C.coachAthletes, coachProfile: C.coachProfile,
   coachAssessment: C.coachAssessment, coachHistory: C.coachHistory, coachPlan: C.coachPlan,
-  coachDecision: C.coachDecision, coachReports: C.coachReports, coachCalendar: C.coachCalendar,
+  coachDecision: C.coachDecision, coachRadar: C.coachRadar, coachRadarDetail: C.coachRadarDetail,
+  coachReports: C.coachReports, coachCalendar: C.coachCalendar,
   coachTravels: C.coachTravels, coachNotifications: C.coachNotifications, coachSettings: C.coachSettings,
   athleteHome: A.athleteHome, athleteWellness: A.athleteWellness, athleteWorkout: A.athleteWorkout,
   athleteTournament: A.athleteTournament, athleteRecovery: A.athleteRecovery, athleteHistory: A.athleteHistory,
@@ -283,6 +284,36 @@ const actions = {
       onSubmit(d) {
         saveDecision(a.id, { final: d.decision, note: d.note });
         closeModal(); toast('Decisão registrada'); render();
+      }
+    });
+  },
+
+  // radar de evidências
+  'radar-open': (el) => { state.ctx.athleteId = el.dataset.arg; go('coachRadarDetail'); },
+  'radar-confirm': async (el) => {
+    const a = db.get('athletes', state.ctx.athleteId) || db.list('athletes')[0];
+    const dec = el.dataset.arg;
+    const confidence = el.dataset.confidence || 'BAIXA';
+    const factor = { PROGREDIR: 1.10, REDUZIR: 0.80, DESCARREGAR: 0.60, MANTER: 1, REAVALIAR: 1, ENCAMINHAR: 1 }[dec] || 1;
+    if (factor !== 1) {
+      const mon = mondayOf(todayISO());
+      const planned = db.list('sessions', s => s.athleteId === a.id && s.status === 'PLANNED' && s.date >= mon && s.date <= addDays(mon, 6));
+      planned.forEach(s => db.update('sessions', s.id, { plannedLoad: Math.round(s.plannedLoad * factor) }));
+    }
+    saveDecision(a.id, { sugerida: dec, final: dec, note: `Confirmado via Radar em ${fmtShort(todayISO())}.`, confianca: confidence });
+    toast(`Decisão ${dec} confirmada ✓`); render();
+  },
+  'radar-alter': () => {
+    const a = db.get('athletes', state.ctx.athleteId) || db.list('athletes')[0];
+    const dec = (db.all().decisions || {})[a.id] || {};
+    openModal(`Alterar decisão · ${a.name.split(' ')[0]}`, [
+      field('Decisão', select('decision', ['PROGREDIR', 'MANTER', 'REDUZIR', 'DESCARREGAR', 'REAVALIAR', 'ENCAMINHAR'], dec.decision || 'MANTER')),
+      field('Motivo (obrigatório)', textarea('note', { value: '', placeholder: 'critério do treinador para alterar a sugestão' })),
+    ].join(''), {
+      onSubmit(d) {
+        if (!d.note || !d.note.trim()) return toast('Motivo obrigatório ao alterar a sugestão.', 'err');
+        saveDecision(a.id, { final: d.decision, note: d.note.trim() });
+        closeModal(); toast('Decisão alterada e registrada'); render();
       }
     });
   },
