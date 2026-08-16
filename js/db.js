@@ -329,6 +329,12 @@ async function hydrate() {
     category: a.categoria || '', partnerName: '—', // dupla não existe no canônico (legado visual)
     status: a.status === 'lesionado' ? 'INJURED' : 'ACTIVE',
     recoveryScore: lastReadiness[a.atleta_id] || 0, notes: a.observacoes || '',
+    // anamnese mínima do motor (input do próprio atleta) — usada pelo Copiloto
+    // pra montar o microciclo (disponibilidade, acesso, experiência, objetivo).
+    disponibilidadeSemanal: a.disponibilidade_semanal ?? null,
+    acessoAcademia: a.acesso_academia ?? null, acessoAreia: a.acesso_areia ?? null,
+    experienciaForca: a.experiencia_forca || '', toleranciaPlio: a.tolerancia_plio || '',
+    objetivo: a.objetivo || '',
   }));
 
   const bibSesM = {}; (bibS || []).forEach(b => { bibSesM[b.codigo] = b; });
@@ -628,6 +634,21 @@ export async function saveCheckin(athleteId, ck) {
   persistSnapshot();
   syncOk();
   return { readiness, prontidao: p ? p.prontidao : null, banda: p ? p.banda : null };
+}
+
+// ── anamnese do atleta (input próprio — alimenta o Copiloto/microciclo) ──────
+export async function saveAnamnese(athleteId, { disponibilidadeSemanal, acessoAcademia, acessoAreia, experienciaForca, toleranciaPlio, objetivo }) {
+  const row = {
+    disponibilidade_semanal: disponibilidadeSemanal, acesso_academia: acessoAcademia, acesso_areia: acessoAreia,
+    experiencia_forca: experienciaForca || null, tolerancia_plio: toleranciaPlio || null, objetivo: objetivo || null,
+  };
+  await restPatch(`bt_atletas?atleta_id=eq.${encodeURIComponent(athleteId)}`, row);
+  const a = db.get('athletes', athleteId);
+  if (a) Object.assign(a, {
+    disponibilidadeSemanal, acessoAcademia, acessoAreia,
+    experienciaForca: experienciaForca || '', toleranciaPlio: toleranciaPlio || '', objetivo: objetivo || '',
+  });
+  persistSnapshot();
 }
 
 // ── decisão da semana: 6 valores oficiais + evidências/inputs/versão ─────────

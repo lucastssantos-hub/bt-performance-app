@@ -1,5 +1,5 @@
 // app.js — router de pilha + despachante de ações + formulários (modais)
-import { db, auth, syncRemote, ready, saveCheckin, saveDecision, uid, todayISO, addDays, mondayOf, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness, EXERCISE_LIBRARY, EXERCISE_GROUP_LABELS } from './db.js';
+import { db, auth, syncRemote, ready, saveCheckin, saveDecision, saveAnamnese, uid, todayISO, addDays, mondayOf, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness, EXERCISE_LIBRARY, EXERCISE_GROUP_LABELS } from './db.js';
 import { toast, openModal, closeModal, confirmDialog, field, input, select, textarea, esc, fmtShort } from './ui.js';
 import * as C from './screens-coach.js';
 import * as A from './screens-athlete.js';
@@ -351,6 +351,30 @@ function formTournament(existing) {
   });
 }
 
+// anamnese preenchida pelo próprio atleta — alimenta o Copiloto/microciclo
+// (disponibilidade, acesso a academia/areia, experiência, tolerância a
+// pliometria, objetivo). Campos opcionais: motor usa dose conservadora
+// quando faltar dado (mesma regra do Copiloto de sessão única).
+function formAnamnese(a) {
+  openModal('Meus dados de treino', [
+    field('Quantos treinos físicos você consegue fazer por semana?', input('disponibilidadeSemanal', { type: 'number', value: a.disponibilidadeSemanal ?? '', min: 0, max: 7, required: false })),
+    `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:#C7CFDA;margin:12px 0 8px;"><input type="checkbox" name="acessoAcademia" ${a.acessoAcademia ? 'checked' : ''} style="accent-color:#FF6A3D;">Tenho acesso a academia</label>`,
+    `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:#C7CFDA;margin-bottom:16px;"><input type="checkbox" name="acessoAreia" ${a.acessoAreia ? 'checked' : ''} style="accent-color:#FF6A3D;">Tenho acesso a areia/quadra pra treino físico</label>`,
+    field('Experiência com treino de força', select('experienciaForca', [['', 'Não informado'], ['nenhuma', 'Nenhuma'], ['baixa', 'Baixa'], ['media', 'Média'], ['alta', 'Alta']], a.experienciaForca || '')),
+    field('Tolerância a treino pliométrico (saltos)', select('toleranciaPlio', [['', 'Não informado'], ['nunca', 'Nunca treinei'], ['basica', 'Básica'], ['avancada', 'Avançada']], a.toleranciaPlio || '')),
+    field('Seu objetivo principal agora', textarea('objetivo', { value: a.objetivo || '', placeholder: 'ex: melhorar aceleração pra defender bola alta' })),
+  ].join(''), {
+    onSubmit: async (d) => {
+      await saveAnamnese(a.id, {
+        disponibilidadeSemanal: d.disponibilidadeSemanal ? +d.disponibilidadeSemanal : null,
+        acessoAcademia: !!d.acessoAcademia, acessoAreia: !!d.acessoAreia,
+        experienciaForca: d.experienciaForca || '', toleranciaPlio: d.toleranciaPlio || '', objetivo: d.objetivo || '',
+      });
+      closeModal(); toast('Dados de treino atualizados'); render();
+    }
+  });
+}
+
 function formTravel(existing) {
   const tv = existing || { tournamentId: (nextTournament(null) || {}).id || '', origin: '', destination: '', departureDate: todayISO(), arrivalDate: addDays(todayISO(), 1), hotel: '', notes: '' };
   openModal(existing ? 'Editar viagem' : 'Nova viagem', [
@@ -473,6 +497,10 @@ const actions = {
 
   // avaliação
   'assessment-new': () => formAssessment(),
+  'athlete-anamnese-edit': () => {
+    const a = db.get('athletes', auth.current().athleteId) || db.list('athletes')[0];
+    if (a) formAnamnese(a);
+  },
 
   // plano / sessões
   'plan-week': (el) => { state.ctx.planWeek = addDays(state.ctx.planWeek || mondayOf(todayISO()), 7 * +el.dataset.arg); render(); },
