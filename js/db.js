@@ -79,6 +79,103 @@ function enqueue(fn) {
 // ── mapeamentos canônico ⇄ legado ────────────────────────────────────────────
 const TIPO_APP = { tecnica: 'Quadra', tatica: 'Quadra', 'jogo-treino': 'Quadra', 'jogo-oficial': 'Quadra', fisica: 'Força' };
 
+// Espelho exato de bt_biblioteca_exercicios (supabase/001_schema_bt.sql) — nome
+// em PT-BR (o mesmo usado em COPILOTO_EXERCISES, js/app.js) → exercicio_id (slug
+// kebab-case do banco). Não adicionar nome aqui sem primeiro existir na tabela.
+const EXERCISE_ID_MAP = {
+  'estabilidade lateral ajoelhado': 'estabilidade-lateral-ajoelhado',
+  'estabilidade lateral em pé': 'estabilidade-lateral-em-pe',
+  'cortador ajoelhado': 'cortador-ajoelhado',
+  'prancha semiajoelhada': 'prancha-semiajoelhada',
+  'prancha no chão': 'prancha-no-chao',
+  'prancha na bola': 'prancha-na-bola',
+  'prancha no slide': 'prancha-no-slide',
+  'ponte na bola': 'ponte-na-bola',
+  'flexão de joelhos na bola': 'flexao-joelhos-bola',
+  'flexão de joelhos no slide': 'flexao-joelhos-slide',
+  'goblet squat': 'goblet-squat',
+  'double front squat': 'double-front-squat',
+  'agachamento com barra': 'agachamento-barra',
+  'passada simples': 'passada-simples',
+  'passada 2 steps': 'passada-2-steps',
+  'passada com suspensão': 'passada-suspensao',
+  'terra kettlebell': 'terra-kettlebell',
+  'terra hexagonal': 'terra-hexagonal',
+  'terra com barra': 'terra-barra',
+  'apoio': 'apoio',
+  'supino halter': 'supino-halter',
+  'supino com barra': 'supino-barra',
+  'empurrar barra semiajoelhado': 'empurrar-barra-semiajoelhado',
+  'supino inclinado': 'supino-inclinado',
+  'double press': 'double-press',
+  'face pull': 'face-pull',
+  'puxada inclinada': 'puxada-inclinada',
+  'barra fixa': 'barra-fixa',
+  'arremesso med ball af semiajoelhado': 'mb-af-semiajoelhado',
+  'arremesso med ball af em pé': 'mb-af-em-pe',
+  'arremesso med ball af base contralateral': 'mb-af-contralateral',
+  'arremesso med ball ac semiajoelhado': 'mb-ac-semiajoelhado',
+  'arremesso med ball ac em pé': 'mb-ac-em-pe',
+  'arremesso med ball ac base contralateral': 'mb-ac-contralateral',
+  'pogo jump vertical': 'pogo-vertical',
+  'pogo jump lateral': 'pogo-lateral',
+  'pogo jump frente/trás': 'pogo-frente-tras',
+  'pogo jump unilateral': 'pogo-unilateral',
+  'queda no solo bilateral': 'queda-solo-bilateral',
+  'queda no solo assimétrica': 'queda-solo-assimetrica',
+  'queda da caixa bilateral': 'queda-caixa-bilateral',
+  'queda da caixa assimétrica': 'queda-caixa-assimetrica',
+  'hop linear dc': 'hop-linear-dc',
+  'hop linear contínuo': 'hop-linear-continuo',
+  'hop lateral contínuo': 'hop-lateral-continuo',
+  'bound contínuo': 'bound-continuo',
+  'bound lateral dp': 'bound-lateral-dp',
+  'bound contínuo com sobrecarga': 'bound-continuo-sobrecarga',
+  'drop vertical bilateral': 'drop-vertical-bilateral',
+  'drop vertical barreira': 'drop-vertical-barreira',
+  'drop diagonal barreira': 'drop-diagonal-barreira',
+  'load and lift': 'load-and-lift',
+  'load and lift com alternância de pernas': 'load-and-lift-alternancia',
+  'marcha contra a parede': 'marcha-contra-parede',
+  'marcha à frente com resistência': 'marcha-frente-resistencia',
+  'skip com resistência': 'skip-resistencia',
+  'bound com resistência': 'bound-resistencia',
+  'corrida resistida': 'corrida-resistida',
+  'utilização de trenós': 'treno',
+  'lateral shuffle': 'lateral-shuffle',
+  'double shuffle': 'double-shuffle',
+  'cut and shuffle': 'cut-and-shuffle',
+  'lateral shuffle contínuo': 'lateral-shuffle-continuo',
+  'lean and crossover': 'lean-and-crossover',
+  'crossover potente': 'crossover-potente',
+  'cut and crossover': 'cut-and-crossover',
+};
+const normalizeExName = (v) => String(v || '').replace(/\*\*/g, '')
+  .replace(/\s*\([^)]*(leve|fácil|reps)[^)]*\)\s*/gi, '').trim().toLowerCase();
+
+// bt_sessoes_prescritas espera exercicios: [{exercicio_id, series, repeticoes,
+// intensidade, descanso, ordem}] (comentário do schema) — aceita campos extras.
+function prescRow(s) {
+  return {
+    atleta_id: s.athleteId,
+    data: s.date,
+    sessao_codigo: s.sessionCode,
+    exercicios: (s.exercises || []).map((e, i) => ({
+      exercicio_id: EXERCISE_ID_MAP[normalizeExName(e.name)] || null,
+      ordem: e.order ?? i,
+      series: e.sets ?? null,
+      repeticoes: e.reps ?? null,
+      descanso: e.rest || null,
+      esquema: e.scheme || null,
+      criterio_interrupcao: e.stopCriteria || null,
+      nota_seguranca: e.safetyNote || null,
+    })),
+    origem: 'copiloto-ia',
+    status: 'PLANEJADA',
+    observacoes: s.notes || null,
+  };
+}
+
 function sessToRow(s) {
   return {
     atleta_id: s.athleteId,
@@ -368,10 +465,15 @@ const REMOTE = {
   sessions: {
     insert(s) {
       const tempId = s.id;
+      // sessão vinda do Copiloto (código da biblioteca fechada): vai pra
+      // bt_sessoes_prescritas com IDs da biblioteca, não pro adaptador legado.
+      const prefix = s.sessionCode ? 'p' : 'c';
+      const table = s.sessionCode ? 'bt_sessoes_prescritas' : 'bt_carga_sessoes';
+      const row = s.sessionCode ? prescRow(s) : sessToRow(s);
       enqueue(async () => {
-        const rows = await restPost('bt_carga_sessoes', [sessToRow(s)]);
+        const rows = await restPost(table, [row]);
         if (rows && rows[0]) {
-          idMap[tempId] = 'c' + rows[0].id;
+          idMap[tempId] = prefix + rows[0].id;
           const o = (cache.sessions || []).find(x => x.id === tempId);
           if (o) o.id = idMap[tempId];
           persistSnapshot();

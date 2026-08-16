@@ -624,14 +624,16 @@ const actions = {
     const durMatch = result.match(/Duração estimada:\*\*?\s*(\d+)/i);
     const duration = validation.duration;
     const isSand = validation.code.startsWith('B');
-    const isRegen = /Descarga|Prevenção|Pós-torneio/i.test(title);
+    // baixa fadiga por definição (motor-prescricao.md): A5 descarga, A6A controle
+    // de tronco, B7 pós-torneio — checar pelo código, não pelo texto do título.
+    const isRegen = ['A5', 'A6A', 'B7'].includes(validation.code);
     const type = isRegen ? 'Regenerativo' : isSand ? 'Quadra' : /Potência/i.test(title) ? 'Potência' : 'Força';
     db.insert('sessions', {
       athleteId: a.id, date: todayISO(), title, type,
       location: isSand ? 'SAND' : 'GYM',
       durationMinutes: duration, targetRpe: isRegen ? 5 : 7,
       plannedLoad: Math.round(duration * (isRegen ? 5 : 7)),
-      notes: result, prescrita: false, aiAssisted: true, sessionCode: validation.code,
+      notes: result, prescrita: true, aiAssisted: true, sessionCode: validation.code,
       exercises: validation.exercises, status: 'PLANNED',
     });
     state.ctx.copilotoApproved = true;
