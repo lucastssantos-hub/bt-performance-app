@@ -27,11 +27,11 @@ COACH_EMAIL="${BT_COACH_EMAIL:-}"; COACH_SENHA="${BT_COACH_SENHA:-}"
 jqpy() { python3 -c "import sys,json;d=json.load(sys.stdin);print(d$1)"; }
 
 echo "1/4 criando usuário (signup)…"
-R=$(curl -sf -X POST "$URL/auth/v1/signup" -H "apikey: $KEY" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$URL/auth/v1/signup" -H "apikey: $KEY" -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$SENHA\"}")
-UID_NOVO=$(echo "$R" | jqpy ".get('id') or d.get('user',{}).get('id')")
-TOK_NOVO=$(echo "$R" | jqpy ".get('access_token','')")
-[ -z "$UID_NOVO" ] && { echo "ERRO no signup: $R"; exit 1; }
+UID_NOVO=$(echo "$R" | jqpy ".get('id') or d.get('user',{}).get('id')" 2>/dev/null || true)
+TOK_NOVO=$(echo "$R" | jqpy ".get('access_token','')" 2>/dev/null || true)
+[ -z "$UID_NOVO" ] && { echo "ERRO no signup ($EMAIL): $R"; exit 1; }
 
 echo "2/4 criando perfil de atleta (vínculo $SLUG)…"
 curl -sf -X POST "$URL/rest/v1/bt_perfis" -H "apikey: $KEY" -H "Authorization: Bearer $TOK_NOVO" \
