@@ -716,8 +716,11 @@ export function coachCopiloto(ctx) {
       <div style="font-size:12px;color:#5A6472;">Motor BT aplicando árvore de decisão</div>
     </div>
     ` : `
-    <button class="tap btn-primary" data-action="copiloto-generate" style="box-shadow:0 12px 30px -8px rgba(255,106,61,.45);${result ? 'margin-bottom:20px;' : ''}">
+    <button class="tap btn-primary" data-action="copiloto-generate" style="box-shadow:0 12px 30px -8px rgba(255,106,61,.45);margin-bottom:10px;">
       ${result ? '↺ Gerar nova sessão' : 'Gerar sessão →'}
+    </button>
+    <button class="tap btn-dark" data-action="microciclo-generate" style="${result ? 'margin-bottom:20px;' : 'margin-bottom:20px;'}">
+      📅 Montar microciclo da semana com IA
     </button>
     `}
 
@@ -743,6 +746,62 @@ export function coachCopiloto(ctx) {
     </div>
     `}
     ` : ''}
+  </div>`;
+}
+
+// ── MICROCICLO (semana inteira via Copiloto) ────────────────────────────────
+export function coachMicrociclo(ctx) {
+  const a = db.get('athletes', ctx.microcicloAthleteId) || db.list('athletes')[0];
+  const results = ctx.microcicloResults || [];
+  const total = ctx.microcicloTotalDays || results.length || 1;
+  const isLoading = !!ctx.microcicloLoading;
+  const pendingApprovable = results.filter(r => r.validation && r.validation.ok && !r.approved).length;
+
+  return `<div class="pagepad" style="padding-top:58px;padding-bottom:120px;">
+    <div style="display:flex;align-items:center;gap:13px;margin-bottom:20px;">
+      <div class="tap backbtn" data-action="back">${ICONS.back}</div>
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:#FF6A3D;">MICROCICLO DA SEMANA</div>
+        <div style="font-family:'Space Grotesk';font-weight:700;font-size:20px;">${a ? esc(a.name) : 'Atleta'}</div>
+      </div>
+    </div>
+
+    ${isLoading ? `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:24px 0 30px;">
+      <div style="width:44px;height:44px;border-radius:50%;border:3px solid rgba(255,106,61,.15);border-top-color:#FF6A3D;animation:spin 0.9s linear infinite;"></div>
+      <div style="font-size:13.5px;color:#8A94A3;">Gerando sessão ${Math.min(results.length + 1, total)} de ${total}…</div>
+      <div style="font-size:12px;color:#5A6472;">Cada dia usa o mesmo motor da sessão única, considerando o que já foi gerado antes nesta semana</div>
+    </div>
+    ` : ''}
+
+    ${!isLoading && pendingApprovable > 1 ? `
+    <button class="tap btn-primary" data-action="microciclo-approve-all" style="margin-bottom:16px;box-shadow:0 12px 30px -8px rgba(255,106,61,.45);">Aprovar todas (${pendingApprovable}) ✓</button>
+    ` : ''}
+
+    ${results.map((day, i) => {
+      const dow = fmtDow(day.date);
+      if (!day.validation || !day.validation.ok) {
+        return `<div class="card" style="padding:14px 16px;margin-bottom:12px;border:1px solid rgba(255,93,93,.3);">
+          <div style="font-size:12px;color:#5A6472;margin-bottom:4px;">${dow} · ${day.date}</div>
+          <div style="font-size:13.5px;color:#FF9B9B;">⚠ ${esc((day.validation && day.validation.error) || 'Falha ao gerar')}</div>
+          <div class="tap" data-action="microciclo-day-reject" data-arg="${i}" style="margin-top:10px;font-size:12.5px;color:#8A94A3;">Remover da lista</div>
+        </div>`;
+      }
+      return `<div class="card" style="padding:14px 16px;margin-bottom:12px;border:1px solid ${day.approved ? 'rgba(52,224,161,.3)' : 'rgba(255,106,61,.18)'};">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div style="font-size:12px;color:#5A6472;">${dow} · ${day.date} · ${esc(day.validation.code)}</div>
+          ${day.approved ? `<span style="font-size:11px;font-weight:700;color:#34E0A1;">APROVADA ✓</span>` : ''}
+        </div>
+        <div style="font-size:13px;color:#C7CFDA;line-height:1.6;max-height:260px;overflow-y:auto;">${mdToHtml(day.result)}</div>
+        ${!day.approved ? `
+        <div style="display:flex;gap:10px;margin-top:12px;">
+          <button class="tap btn-primary" data-action="microciclo-day-approve" data-arg="${i}" style="flex:1;padding:12px;">Aprovar ✓</button>
+          <button class="tap btn-dark" data-action="microciclo-day-reject" data-arg="${i}" style="padding:12px 16px;width:auto;">Rejeitar ✗</button>
+        </div>` : ''}
+      </div>`;
+    }).join('')}
+
+    ${!isLoading && !results.length ? `<div style="text-align:center;color:#5A6472;font-size:13.5px;padding:30px 0;">Nenhuma sessão gerada ainda.</div>` : ''}
   </div>`;
 }
 

@@ -14,7 +14,7 @@ const screens = {
   coachDecision: C.coachDecision, coachRadar: C.coachRadar, coachRadarDetail: C.coachRadarDetail,
   coachReports: C.coachReports, coachCalendar: C.coachCalendar,
   coachTravels: C.coachTravels, coachNotifications: C.coachNotifications, coachSettings: C.coachSettings,
-  coachCopiloto: C.coachCopiloto,
+  coachCopiloto: C.coachCopiloto, coachMicrociclo: C.coachMicrociclo,
   athleteHome: A.athleteHome, athleteWellness: A.athleteWellness, athleteWorkout: A.athleteWorkout,
   athleteTournament: A.athleteTournament, athleteRecovery: A.athleteRecovery, athleteHistory: A.athleteHistory,
   athleteMessages: A.athleteMessages, athleteProfile: A.athleteProfile,
@@ -200,6 +200,66 @@ function buildCopilotoPrompt(a, c, nt, assess, recentSessions, wkCurrent, wkPrev
     contextText ? '\n## Contexto adicional do treinador\n' + contextText : '',
     '',
     'Gere a sessão física para hoje seguindo o motor do BT Performance Lab.',
+  ].filter(l => l !== null && l !== undefined).join('\n').trim();
+}
+
+// ── microciclo (semana inteira) ───────────────────────────────────────────────
+// escolhe até n dias entre segunda e domingo sem sessão já planejada, sem
+// viagem e sem torneio do próprio atleta cobrindo o dia — nunca sobrescreve
+// nem empilha em cima do que já existe no plano.
+function pickMicrocicloDays(athleteId, monday, n) {
+  const week = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  const busy = new Set();
+  db.list('sessions', s => s.athleteId === athleteId).forEach(s => busy.add(s.date));
+  db.list('travels', t => t.athleteId === athleteId).forEach(t => {
+    for (let d = t.departureDate; d <= t.arrivalDate; d = addDays(d, 1)) busy.add(d);
+  });
+  db.list('tournaments', t => (t.athletes || []).includes(athleteId)).forEach(t => {
+    for (let d = t.startDate; d <= t.endDate; d = addDays(d, 1)) busy.add(d);
+  });
+  const free = week.filter(d => !busy.has(d));
+  if (free.length <= n) return free;
+  // distribui os n dias o mais espaçado possível dentro dos livres, em vez de
+  // pegar os n primeiros (evita dois treinos físicos colados sem necessidade).
+  const step = free.length / n;
+  const chosen = [];
+  for (let i = 0; i < n; i++) chosen.push(free[Math.min(free.length - 1, Math.round(i * step))]);
+  return [...new Set(chosen)];
+}
+
+function buildMicrocicloPrompt(a, c, date, dayIndex, totalDays, priorCodes, analysis, weekTravels, weekTournaments) {
+  const viagemHoje = weekTravels.find(t => date >= t.departureDate && date <= t.arrivalDate);
+  const torneioHoje = weekTournaments.find(t => date >= t.startDate && date <= t.endDate);
+  const nt = torneioHoje || null;
+  const daysTo = nt ? diffDays(nt.startDate, date) : null;
+  return [
+    `Atleta: ${a.name}${a.age ? ' (' + a.age + ' anos)' : ''}`,
+    `Data desta sessão: ${date} (dia ${dayIndex} de ${totalDays} do microciclo)`,
+    '',
+    '## Estado no início do microciclo',
+    `Prontidão: ${c && c.prontidao != null ? c.prontidao + '/25 (banda: ' + (c.banda || '?') + ')' : 'sem check-in recente'}`,
+    `Dor: ${c ? (c.painScore > 0 ? c.painScore + '/10 em ' + (c.painLocation || 'região?') + (c.alteraMovimento ? ' — ALTERA MOVIMENTO' : '') : '0/10 — sem dor') : 'sem check-in recente'}`,
+    `Decisão da Semana vigente: ${analysis.decision} (confiança ${analysis.confidence})`,
+    '',
+    '## Anamnese do atleta (preenchida por ele mesmo — dado real, não assumir além disso)',
+    `Disponibilidade semanal declarada: ${a.disponibilidadeSemanal != null ? a.disponibilidadeSemanal + 'x/semana' : 'não informada'}`,
+    `Acesso a academia: ${a.acessoAcademia === true ? 'sim' : a.acessoAcademia === false ? 'não' : 'não informado'}`,
+    `Acesso a areia/quadra: ${a.acessoAreia === true ? 'sim' : a.acessoAreia === false ? 'não' : 'não informado'}`,
+    `Experiência com treino de força: ${a.experienciaForca || 'não informada'}`,
+    `Tolerância a pliometria: ${a.toleranciaPlio || 'não informada'}`,
+    a.objetivo ? `Objetivo relatado pelo atleta: ${a.objetivo}` : '',
+    '',
+    '## Contexto deste dia específico',
+    viagemHoje ? `VIAGEM neste dia: ${viagemHoje.origin || '?'} → ${viagemHoje.destination} (${viagemHoje.departureDate} a ${viagemHoje.arrivalDate}).` : 'Sem viagem neste dia.',
+    torneioHoje ? `TORNEIO neste dia: ${torneioHoje.name}, em ${daysTo} dia(s) do início (prioridade ${torneioHoje.isMainTarget ? 'A' : 'B'}).` : 'Sem torneio neste dia.',
+    '',
+    '## Sessões já geradas neste mesmo microciclo (não repita a mesma capacidade em excesso; varie)',
+    priorCodes.length ? priorCodes.map((code, i) => `Dia ${i + 1}: ${code}`).join('\n') : 'Nenhuma ainda — esta é a primeira sessão do microciclo.',
+    '',
+    a.acessoAcademia === false ? 'RESTRIÇÃO: sem acesso a academia — use apenas códigos de areia (B1-B4, B6, B7) ou centro do corpo sem equipamento.' : '',
+    a.acessoAreia === false ? 'RESTRIÇÃO: sem acesso a areia/quadra — use apenas códigos de academia (A1-A5, A6A, A6B).' : '',
+    '',
+    `Gere a sessão física para ${date} seguindo o motor do BT Performance Lab.`,
   ].filter(l => l !== null && l !== undefined).join('\n').trim();
 }
 
@@ -770,6 +830,85 @@ const actions = {
         closeModal(); toast('Ajustes aplicados — revise e aprove'); render();
       },
     });
+  },
+
+  // microciclo (semana inteira, sequência de chamadas ao mesmo Copiloto de sessão)
+  'microciclo-generate': async () => {
+    const a = db.get('athletes', state.ctx.copilotoAthleteId || state.ctx.athleteId) || db.list('athletes')[0];
+    if (!a) return toast('Nenhum atleta selecionado', 'err');
+    const c = latestCheckin(a.id);
+    const analysis = analyzeAthleteWeek({
+      athlete: a, today: todayISO(), checkins: db.list('checkins'), sessions: db.list('sessions'),
+      assessments: db.list('assessments'), tournaments: db.list('tournaments'), travels: db.list('travels'),
+    });
+    if (analysis.decision === 'ENCAMINHAR') {
+      return toast('Bloqueado: os dados atuais pedem encaminhamento profissional antes de montar o microciclo.', 'err');
+    }
+    const n = a.disponibilidadeSemanal || 3;
+    if (!a.disponibilidadeSemanal) toast('Atleta não informou disponibilidade semanal no perfil — usando 3x/semana como padrão.', 'warn');
+    const monday = mondayOf(todayISO());
+    const days = pickMicrocicloDays(a.id, monday, n);
+    if (!days.length) return toast('Nenhum dia livre esta semana — torneio, viagem ou sessões já ocupam o plano inteiro.', 'err');
+    const weekTravels = db.list('travels', t => t.athleteId === a.id);
+    const weekTournaments = db.list('tournaments', t => (t.athletes || []).includes(a.id));
+    state.ctx.microcicloAthleteId = a.id;
+    state.ctx.microcicloLoading = true;
+    state.ctx.microcicloResults = [];
+    state.ctx.microcicloTotalDays = days.length;
+    go('coachMicrociclo');
+    const results = [];
+    for (let i = 0; i < days.length; i++) {
+      const date = days[i];
+      const priorCodes = results.map(r => r.validation && r.validation.code).filter(Boolean);
+      const prompt = buildMicrocicloPrompt(a, c, date, i + 1, days.length, priorCodes, analysis, weekTravels, weekTournaments);
+      try {
+        const text = await callCopiloto(prompt);
+        const validation = validateCopilotoResult(text, { checkin: c, contextText: '' });
+        results.push({ date, result: text, validation, approved: false });
+      } catch (err) {
+        results.push({ date, result: '', validation: { ok: false, error: err.message }, approved: false });
+      }
+      state.ctx.microcicloResults = [...results];
+      render();
+    }
+    state.ctx.microcicloLoading = false;
+    render();
+  },
+  'microciclo-day-approve': (el) => {
+    const i = +el.dataset.arg;
+    const day = (state.ctx.microcicloResults || [])[i];
+    const a = db.get('athletes', state.ctx.microcicloAthleteId);
+    if (!day || !a || !day.validation.ok || day.approved) return;
+    const titleMatch = day.result.match(/^# (.+)$/m);
+    const title = titleMatch ? titleMatch[1].replace(/\*\*/g, '').trim() : 'Sessão prescrita por IA';
+    const isSand = day.validation.code.startsWith('B');
+    const isRegen = ['A5', 'A6A', 'B7'].includes(day.validation.code);
+    const type = isRegen ? 'Regenerativo' : isSand ? 'Quadra' : /Potência/i.test(title) ? 'Potência' : 'Força';
+    db.insert('sessions', {
+      athleteId: a.id, date: day.date, title, type,
+      location: isSand ? 'SAND' : 'GYM',
+      durationMinutes: day.validation.duration, targetRpe: isRegen ? 5 : 7,
+      plannedLoad: Math.round(day.validation.duration * (isRegen ? 5 : 7)),
+      notes: day.result, prescrita: true, aiAssisted: true, sessionCode: day.validation.code,
+      exercises: day.validation.exercises, status: 'PLANNED',
+    });
+    day.approved = true;
+    toast(`Sessão de ${day.date} aprovada e salva ✓`);
+    render();
+  },
+  'microciclo-day-reject': (el) => {
+    const i = +el.dataset.arg;
+    const results = state.ctx.microcicloResults || [];
+    if (results[i]) results.splice(i, 1);
+    render();
+  },
+  'microciclo-approve-all': () => {
+    const results = state.ctx.microcicloResults || [];
+    let count = 0;
+    results.forEach((day, i) => {
+      if (day.validation.ok && !day.approved) { actions['microciclo-day-approve']({ dataset: { arg: String(i) } }); count++; }
+    });
+    if (count) toast(`${count} sessão(ões) aprovada(s) e salva(s) no plano ✓`);
   },
 
   // mensagens
