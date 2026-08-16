@@ -705,7 +705,7 @@ export function coachCopiloto(ctx) {
       ${ICONS.warn('#FF5D5D')}
       <div>
         <div style="font-size:13px;font-weight:700;color:#FF5D5D;">Sinal de bloqueio detectado</div>
-        <div id="copiloto-block-terms" style="font-size:12px;color:#C7CFDA;margin-top:3px;">${hasBlock ? 'Termos: ' + sinaisEncontrados.map(s=>`"${s}"`).join(', ') + ' → apenas A5, A6 ou B7.' : ''}</div>
+        <div id="copiloto-block-terms" style="font-size:12px;color:#C7CFDA;margin-top:3px;">${hasBlock ? 'Termos: ' + sinaisEncontrados.map(s=>`"${s}"`).join(', ') + ' → apenas A5, A6A ou B7.' : ''}</div>
       </div>
     </div>
 

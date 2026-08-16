@@ -83,104 +83,13 @@ function bindInputs() {
     const warnEl = document.getElementById('copiloto-block-warn');
     const termsEl = document.getElementById('copiloto-block-terms');
     if (warnEl) warnEl.style.display = found.length ? 'flex' : 'none';
-    if (termsEl && found.length) termsEl.textContent = 'Termos: ' + found.map(s => `"${s}"`).join(', ') + ' → apenas A5, A6 ou B7.';
+    if (termsEl && found.length) termsEl.textContent = 'Termos: ' + found.map(s => `"${s}"`).join(', ') + ' → apenas A5, A6A ou B7.';
   });
 }
 
 // ── copiloto de sessão ────────────────────────────────────────────────────────
-const COPILOTO_SYSTEM_PROMPT_LEGACY = `Você é o copiloto de prescrição física do BT Performance Lab — especialista em preparação física para Beach Tennis profissional (Top 200 internacional). Gere UMA sessão física para o atleta indicado, seguindo ESTRITAMENTE as regras deste motor fechado.
-
-REGRAS ABSOLUTAS:
-- Usar APENAS as 13 sessões da biblioteca fechada (A1–A6, B1–B7). Sessão fora = REJEITADA.
-- Usar APENAS exercícios da biblioteca fechada. Exercício inventado = marcar como IA_INVENTOU_EXERCICIO.
-- Nunca prescrever sessão intensa com: dor ≥6/10, prontidão VERMELHO (≤14), ou torneio em ≤24h.
-- Idioma: PT-BR. Tom: direto, técnico, comissão técnica esportiva.
-- Encerrar SEMPRE com a frase: "Esta sessão aguarda sua aprovação antes de ser registrada — confirma, ajusta ou rejeita?"
-
-## AS 13 SESSÕES
-A1 Força Máxima (Academia) — base de força, 75–85%, 3–4×2–5, descanso 180–300s. Quando: déficit de força, wellness BOM, sem torneio em 48h.
-A2 Força-Velocidade (Academia) — velocidade contra carga, 50–70%, 2–4×3–5, descanso 120–180s. Quando: fase transferência, wellness BOM ou MODERADO.
-A3 Potência (Academia) — saltos/arremessos, intenção máxima, 2–4×3–6, descanso 90–180s. Quando: atleta recuperado, longe de competição.
-A4 Manutenção (Academia) — manter com fadiga mínima, <75%, 2–3×3–4, descanso 120s. Quando: semana de torneio ou carga técnica alta.
-A5 Descarga (Academia) — carga baixa, qualidade máxima, RPE ≤6. Quando: fadiga acumulada, wellness AMARELO ou VERMELHO.
-A6 Prevenção (Academia) — estabilidade e controle, sem falha. Quando: histórico de lesão, foco preventivo.
-B1 Aceleração (Areia) — 5–10s esforço, descanso 1:4–1:6. Quando: trabalhar aceleração, longe de torneio.
-B2 Mudança de Direção (Areia) — COD programado, NUNCA com estímulo externo.
-B3 Reatividade (Areia) — COD com estímulo externo obrigatório (bola, voz, visual). Sem estímulo = B2.
-B4 Potência Rotacional (Areia) — arremessos rotacionais, med ball. PAP/PAPE: pico 6–10min pós contração de condicionamento.
-B5 Deslocamentos Específicos (Areia) — padrões BT: shuffles, crossovers, bounds em areia.
-B6 Pré-torneio (Areia) — ativação apenas, RPE ≤6, volume mínimo, sem exercício novo.
-B7 Pós-torneio (Areia) — recuperação, RPE ≤4, movimento leve.
-
-## ÁRVORE DE DECISÃO (prioridade — primeiro que disparar decide)
-1. Dor ≥6/10 OU que altera movimento? → A5/A6/B7 ou ENCAMINHAR fisio
-2. Torneio em 0–1 dias? → B6 ou descanso
-3. Torneio em 2–3 dias? → B6 ou A4
-4. Torneio em 4–7 dias? → A4 / A2 leve / B5
-5. Viagem longa (≥6h) no dia? → A6/B7/A4 apenas
-6. Prontidão VERMELHO (≤14)? → A5/A6/B7
-7. Prontidão AMARELO (15–17) + carga alta? → A4 ou A5
-8. Tudo claro? → bloco vigente + Decisão da Semana → sessão compatível
-
-## BIBLIOTECA DE EXERCÍCIOS
-
-A1: Principal (1): agachamento com barra, terra hexagonal, terra com barra, double front squat. Complementares (até 2): passada simples, passada 2 steps, passada com suspensão, supino com barra, supino halter, barra fixa, puxada inclinada, face pull, anti-rotação, anti-hiperextensão.
-
-A2: Principal: agachamento com barra, double front squat, terra hexagonal, supino halter, supino com barra. Complementares: med ball AF em pé, med ball AF base contralateral, med ball AC em pé, anti-rotação, face pull.
-
-A3: Grupos (1–2): pogo jumps (vertical/lateral/frente-trás/unilateral) → quedas (solo bilateral, solo assimétrica, caixa bilateral, caixa assimétrica) → hops (linear DC, linear contínuo, lateral contínuo) → bounds (contínuo, lateral DP, com sobrecarga) → drops (vertical bilateral, vertical barreira, diagonal barreira) → arremessos med ball AF/AC (semiajoelhado, em pé, base contralateral) → goblet squat ou double front squat leve c/ máx velocidade. PROGRESSÃO OBRIGATÓRIA: pogo → queda → hop → bound → drop.
-
-A4: Principal (1): goblet squat, double front squat, terra kettlebell, terra hexagonal leve. Complementares (até 2): passada simples, puxada inclinada, face pull, anti-rotação, prancha semiajoelhada.
-
-A5: goblet squat, terra kettlebell, passada simples, anti-rotação, prancha semiajoelhada, prancha no chão, face pull, puxada inclinada.
-
-A6: estabilidade lateral ajoelhado, estabilidade lateral em pé, cortador ajoelhado, prancha semiajoelhada, prancha no chão, prancha na bola, ponte na bola, flexão de joelhos na bola, face pull, anti-rotação.
-
-B1: load and lift, load and lift c/ alternância de pernas, marcha contra a parede, marcha à frente c/ resistência, skip c/ resistência, bound c/ resistência, corrida resistida, utilização de trenós.
-
-B2: load and lift, lateral shuffle, double shuffle, cut and shuffle, lateral shuffle contínuo, lean and crossover, crossover potente, cut and crossover.
-
-B3: mesmos padrões de B2 + estímulo externo obrigatório (sinal visual, bola, adversário, direção chamada, reação a trajetória).
-
-B4: arremesso med ball AF semiajoelhado, arremesso med ball AF em pé, arremesso med ball AF base contralateral, arremesso med ball AC semiajoelhado, arremesso med ball AC em pé, arremesso med ball AC base contralateral, lateral shuffle.
-
-B5: lateral shuffle, double shuffle, cut and shuffle, lean and crossover, crossover potente, cut and crossover, corrida resistida, bounds, hops, pogo jumps.
-
-B6: goblet squat (leve), passada simples (leve), pogo jump vertical, lateral shuffle (baixo volume).
-
-B7: prancha no chão, face pull, goblet squat (muito leve), lateral shuffle (fácil), pogo jump vertical (poucas reps).
-
-## SINAIS DE BLOQUEIO (verificar no contexto do treinador)
-Termos: dor, machucou, lesionou, travou, fisioterapeuta, médico, cirurgia, inflama, inchou, não aguenta, ruptura, fratura → bloquear sessão intensa → apenas A5/A6/B7.
-
-## FORMATO DE SAÍDA OBRIGATÓRIO (markdown)
-# Sessão [CÓDIGO] — [Nome]
-**Atleta:** [nome] · **Data:** [data] · **Duração estimada:** [X] min
-
-## Contexto
-- Prontidão: [X]/25 ([BANDA])
-- Dor: [X/10 · região] (ou "Sem dor registrada")
-- Tipo de semana: [tipo] · Próximo torneio: [nome · data · X dias]
-- Decisão da Semana vigente: [valor]
-
-## Por que esta sessão
-[1–2 linhas: critério da árvore que selecionou + princípio operacional]
-
-## Exercícios
-
-### [Bloco]
-| Exercício | Esquema | Critério de interrupção | Nota de segurança |
-|---|---|---|---|
-| [nome exato da biblioteca] | [séries×reps · descanso · RIR/esforço] | [quando parar] | [se houver, ou —] |
-
-## Restrições aplicadas
-[Bloqueios ativados e o que foi excluído, ou "Nenhuma restrição ativa"]
-
-## Critério de saída do bloco
-[Referência ao critério de avanço/regressão]
-
----
-*Esta sessão aguarda sua aprovação antes de ser registrada — confirma, ajusta ou rejeita?*`;
+// O prompt de verdade fica no servidor (supabase/functions/copiloto-treino/index.ts,
+// chave da Groq em Supabase Secrets). Este arquivo só revalida a resposta.
 
 async function callCopiloto(userPrompt) {
   const data = await invokeFunction('copiloto-treino', { userPrompt });
@@ -188,7 +97,9 @@ async function callCopiloto(userPrompt) {
   return data.result;
 }
 
-const COPILOTO_SESSION_CODES = new Set(['A1','A2','A3','A4','A5','A6','B1','B2','B3','B4','B5','B6','B7']);
+// 13 códigos (decisão 2026-08-15, docs/TEMPLATES_PRESCRICAO_V1.md): A6 dividiu
+// em A6A/A6B; B5 fundiu em B2 e não é mais código próprio.
+const COPILOTO_SESSION_CODES = new Set(['A1','A2','A3','A4','A5','A6A','A6B','B1','B2','B3','B4','B6','B7']);
 // Espelho exato de conhecimento/motor-prescricao.md §6 (biblioteca fechada) —
 // mantido em sincronia com o mesmo array em supabase/functions/copiloto-treino/index.ts.
 const COPILOTO_EXERCISES = new Set([
@@ -219,8 +130,8 @@ const normalizeExercise = (value) => String(value || '')
   .replace(/\*\*/g, '').replace(/\s*\([^)]*(leve|fácil|reps)[^)]*\)\s*/gi, '').trim().toLowerCase();
 
 function validateCopilotoResult(result, { checkin, contextText }) {
-  const code = (result.match(/^#\s+Sessão\s+(A[1-6]|B[1-7])\b/im) || [])[1]?.toUpperCase();
-  if (!code || !COPILOTO_SESSION_CODES.has(code)) return { ok: false, error: 'A resposta não contém um código de sessão válido (A1–A6 ou B1–B7).' };
+  const code = (result.match(/^#\s+Sessão\s+(A[1-5]|A6[AB]|B[1-4]|B6|B7)\b/im) || [])[1]?.toUpperCase();
+  if (!code || !COPILOTO_SESSION_CODES.has(code)) return { ok: false, error: 'A resposta não contém um código de sessão válido (A1–A5, A6A, A6B ou B1–B4, B6, B7).' };
   const duration = +(result.match(/Duração estimada:\*\*?\s*(\d+)/i) || [])[1];
   if (!duration || duration < 15 || duration > 120) return { ok: false, error: 'A duração precisa estar explícita e entre 15 e 120 minutos.' };
   const rows = result.split('\n').filter(line => /^\|.+\|$/.test(line) && !/^\|[\s\-:|]+\|$/.test(line));
@@ -242,8 +153,8 @@ function validateCopilotoResult(result, { checkin, contextText }) {
   const blockingTerms = ['dor','machucou','lesionou','travou','fisioterapeuta','médico','cirurgia','inflama','inchou','não aguenta','ruptura','fratura'];
   const textBlock = blockingTerms.some(term => String(contextText || '').toLowerCase().includes(term));
   const clinicalBlock = !!checkin && (checkin.painScore >= 6 || checkin.alteraMovimento);
-  if ((textBlock || clinicalBlock) && !['A5','A6','B7'].includes(code)) {
-    return { ok: false, error: `Bloqueio clínico ativo: a sessão ${code} não é segura. Use somente A5, A6 ou B7 e encaminhe para avaliação profissional.` };
+  if ((textBlock || clinicalBlock) && !['A5','A6A','B7'].includes(code)) {
+    return { ok: false, error: `Bloqueio clínico ativo: a sessão ${code} não é segura. Use somente A5, A6A ou B7 e encaminhe para avaliação profissional.` };
   }
   return { ok: true, code, duration, exercises };
 }
