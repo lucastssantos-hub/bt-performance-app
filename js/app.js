@@ -1,5 +1,5 @@
 // app.js — router de pilha + despachante de ações + formulários (modais)
-import { db, auth, syncRemote, ready, saveCheckin, saveDecision, uid, todayISO, addDays, mondayOf, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness } from './db.js';
+import { db, auth, syncRemote, ready, saveCheckin, saveDecision, uid, todayISO, addDays, mondayOf, latestCheckin, weekLoad, recoveryOf, athleteStatus, nextTournament, diffDays, sessionLoad, teamReadiness, EXERCISE_LIBRARY, EXERCISE_GROUP_LABELS } from './db.js';
 import { toast, openModal, closeModal, confirmDialog, field, input, select, textarea, esc, fmtShort } from './ui.js';
 import * as C from './screens-coach.js';
 import * as A from './screens-athlete.js';
@@ -254,10 +254,51 @@ function formAssessment() {
   });
 }
 
-function formSession(existing, presetDate) {
+// segura o id da sessão em edição enquanto o modal fica aberto — sem isso,
+// reabrir o modal a cada +/- exercício (formSession(null, ...)) perderia a
+// referência e "editar" viraria "inserir outra sessão" por engano.
+let sessionFormExistingId = null;
+
+// biblioteca fechada agrupada — mesmo catálogo que o Copiloto usa, nunca
+// texto livre (motor-prescricao.md §6: "a IA não pode criar exercício novo",
+// vale igual pra sessão montada manualmente pelo treinador).
+const exerciseOptionsHtml = (selected) => {
+  const byGroup = {};
+  EXERCISE_LIBRARY.forEach(e => (byGroup[e.grupo] = byGroup[e.grupo] || []).push(e));
+  return Object.entries(byGroup).map(([g, list]) =>
+    `<optgroup label="${esc(EXERCISE_GROUP_LABELS[g] || g)}">${list.map(e =>
+      `<option value="${esc(e.nome)}" ${e.nome === selected ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</optgroup>`
+  ).join('');
+};
+const exerciseRowHtml = (ex, i) => `
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+    <select class="f-input" name="ex_name_${i}" style="flex:2;min-width:0;">${exerciseOptionsHtml(ex.name)}</select>
+    <input class="f-input" name="ex_sets_${i}" type="number" min="1" value="${ex.sets || 3}" placeholder="séries" style="flex:0 0 56px;">
+    <input class="f-input" name="ex_reps_${i}" type="text" value="${esc(ex.reps ?? '10')}" placeholder="reps" style="flex:0 0 56px;">
+    <div class="tap" data-action="session-ex-remove" data-arg="${i}" style="flex:0 0 26px;text-align:center;color:#FF5D5D;font-size:16px;">✕</div>
+  </div>`;
+
+function captureSessionDraft(form) {
+  const d = Object.fromEntries(new FormData(form).entries());
+  const exercises = [];
+  for (let i = 0; d[`ex_name_${i}`] !== undefined; i++) {
+    exercises.push({ name: d[`ex_name_${i}`], sets: +d[`ex_sets_${i}`] || 3, reps: d[`ex_reps_${i}`] || '10' });
+  }
+  return {
+    athleteId: d.athleteId, date: d.date, title: d.title, type: d.type, location: d.location,
+    durationMinutes: +d.durationMinutes || 60, targetRpe: +d.targetRpe || 7,
+    plannedLoad: +d.plannedLoad || 0, notes: d.notes || '', exercises,
+  };
+}
+
+function formSession(existing, presetDate, draft) {
+  if (!draft) sessionFormExistingId = existing ? existing.id : null;
+  const existingId = sessionFormExistingId;
   const a = db.get('athletes', state.ctx.athleteId) || db.list('athletes')[0];
-  const s = existing || { athleteId: a.id, date: presetDate || todayISO(), title: '', type: 'Força', location: 'GYM', durationMinutes: 60, targetRpe: 7, plannedLoad: 0, notes: '' };
-  openModal(existing ? 'Editar sessão' : 'Nova sessão', [
+  const base = existing || { athleteId: a.id, date: presetDate || todayISO(), title: '', type: 'Força', location: 'GYM', durationMinutes: 60, targetRpe: 7, plannedLoad: 0, notes: '', exercises: [] };
+  const s = draft ? { ...base, ...draft } : base;
+  const exercises = (s.exercises && s.exercises.length) ? s.exercises : [{ name: EXERCISE_LIBRARY[0].nome, sets: 3, reps: '10' }];
+  openModal(existingId ? 'Editar sessão' : 'Nova sessão', [
     field('Atleta', select('athleteId', athleteOptions(), s.athleteId)),
     field('Data', input('date', { type: 'date', value: s.date })),
     field('Título', input('title', { value: s.title, placeholder: 'ex: Força · MMII' })),
@@ -268,20 +309,18 @@ function formSession(existing, presetDate) {
     field('RPE alvo', input('targetRpe', { type: 'number', value: s.targetRpe, min: 1, max: 10 })),
     `</div>`,
     field('Carga planejada (UA)', input('plannedLoad', { type: 'number', value: s.plannedLoad || Math.round(s.durationMinutes * s.targetRpe), min: 0, required: false })),
-    field('Exercícios (um por linha: nome · séries×reps)', textarea('exercises', { value: (s.exercises || []).map(e => `${e.name} · ${e.sets}×${e.reps}`).join('\n'), placeholder: 'Agachamento · 4×5\nTerra romeno · 3×8' })),
-    existing ? `<button type="button" class="tap btn-dark" data-action="session-delete" data-arg="${existing.id}" style="margin-top:14px;color:#FF5D5D;">Remover sessão</button>` : '',
+    `<label class="f-label">Exercícios (biblioteca fechada)</label>`,
+    exercises.map((ex, i) => exerciseRowHtml(ex, i)).join(''),
+    `<div class="tap" data-action="session-ex-add" style="color:#FF6A3D;font-size:13.5px;font-weight:700;margin-bottom:14px;">+ Adicionar exercício</div>`,
+    existingId ? `<button type="button" class="tap btn-dark" data-action="session-delete" data-arg="${existingId}" style="margin-top:14px;color:#FF5D5D;">Remover sessão</button>` : '',
   ].join(''), {
-    onSubmit(d) {
-      const exercises = (d.exercises || '').split('\n').map(l => l.trim()).filter(Boolean).map((l, i) => {
-        const [name, sr] = l.split('·').map(x => x.trim());
-        const m = (sr || '').match(/(\d+)\s*[x×]\s*(.+)/i);
-        return { id: uid(), name: name || l, sets: m ? +m[1] : 3, reps: m ? m[2] : '10', intensity: '', rest: '', order: i, status: 'PENDING' };
-      });
-      const patch = { athleteId: d.athleteId, date: d.date, title: d.title, type: d.type, location: d.location, durationMinutes: +d.durationMinutes, targetRpe: +d.targetRpe, plannedLoad: +d.plannedLoad || Math.round(+d.durationMinutes * +d.targetRpe), notes: d.notes || '' };
-      if (exercises.length) patch.exercises = exercises;
-      if (existing) db.update('sessions', existing.id, patch);
-      else db.insert('sessions', { ...patch, status: 'PLANNED', exercises });
-      closeModal(); toast(existing ? 'Sessão atualizada' : 'Sessão adicionada ao plano'); render();
+    onSubmit(d, form) {
+      const draft = captureSessionDraft(form);
+      const exercises = draft.exercises.map((e, i) => ({ id: uid(), name: e.name, sets: e.sets, reps: e.reps, intensity: '', rest: '', order: i, status: 'PENDING' }));
+      const patch = { athleteId: draft.athleteId, date: draft.date, title: draft.title, type: draft.type, location: draft.location, durationMinutes: draft.durationMinutes, targetRpe: draft.targetRpe, plannedLoad: draft.plannedLoad || Math.round(draft.durationMinutes * draft.targetRpe), notes: draft.notes, exercises };
+      if (existingId) db.update('sessions', existingId, patch);
+      else db.insert('sessions', { ...patch, status: 'PLANNED' });
+      closeModal(); toast(existingId ? 'Sessão atualizada' : 'Sessão adicionada ao plano'); render();
     }
   });
 }
@@ -442,6 +481,19 @@ const actions = {
     const s = db.get('sessions', el.dataset.arg);
     if (s && s.prescrita) return toast('Sessão prescrita pelo motor — edição só pelo lab.', 'warn');
     if (s) formSession(s);
+  },
+  'session-ex-add': () => {
+    const form = document.getElementById('modal-form');
+    const draft = captureSessionDraft(form);
+    draft.exercises.push({ name: EXERCISE_LIBRARY[0].nome, sets: 3, reps: '10' });
+    formSession(null, null, draft);
+  },
+  'session-ex-remove': (el) => {
+    const form = document.getElementById('modal-form');
+    const draft = captureSessionDraft(form);
+    if (draft.exercises.length <= 1) return toast('A sessão precisa de pelo menos 1 exercício', 'warn');
+    draft.exercises.splice(+el.dataset.arg, 1);
+    formSession(null, null, draft);
   },
   'session-delete': async (el) => {
     closeModal();
