@@ -3,12 +3,12 @@ import { db, auth, syncRemote, ready, saveCheckin, saveDecision, uid, todayISO, 
 import { toast, openModal, closeModal, confirmDialog, field, input, select, textarea, esc, fmtShort } from './ui.js';
 import * as C from './screens-coach.js';
 import * as A from './screens-athlete.js';
-import { invokeFunction } from './remote.js';
+import { invokeFunction, invokePublicFunction } from './remote.js';
 import { analyzeAthleteWeek } from './decision-engine.js';
 
 const NAV_KEY = 'btperf_nav_v1';
 const screens = {
-  login: A.login,
+  login: A.login, athleteSignup: A.signup,
   coachDash: C.coachDash, coachAthletes: C.coachAthletes, coachProfile: C.coachProfile,
   coachAssessment: C.coachAssessment, coachHistory: C.coachHistory, coachPlan: C.coachPlan,
   coachDecision: C.coachDecision, coachRadar: C.coachRadar, coachRadarDetail: C.coachRadarDetail,
@@ -393,6 +393,36 @@ const actions = {
   logout: async () => {
     if (!(await confirmDialog('Sair da conta?', { okLabel: 'Sair' }))) return;
     await auth.logout(); state.ctx = {}; tab('login'); toast('Sessão encerrada');
+  },
+
+  // autocadastro de atleta (Fase 3/Player) — cria conta via Edge Function
+  // (signup-atleta, privilégio elevado só no servidor) e loga em seguida.
+  'signup-consent-toggle': () => { state.ctx.signupConsent = !state.ctx.signupConsent; render(); },
+  'signup-submit': async () => {
+    const nome = document.getElementById('signup-nome').value.trim();
+    const email = document.getElementById('signup-email').value.trim();
+    const senha = document.getElementById('signup-senha').value || '';
+    const slug = document.getElementById('signup-slug').value.trim().toLowerCase();
+    const coachEmail = document.getElementById('signup-coach').value.trim();
+    state.ctx.signupNome = nome; state.ctx.signupEmail = email;
+    state.ctx.signupSlug = slug; state.ctx.signupCoach = coachEmail;
+    if (!state.ctx.signupConsent) { state.ctx.signupError = 'É preciso aceitar o termo de consentimento para continuar.'; return render(); }
+    if (!nome || !email || senha.length < 6 || !slug || !coachEmail) {
+      state.ctx.signupError = 'Preencha todos os campos (senha com pelo menos 6 caracteres).'; return render();
+    }
+    state.ctx.signupError = ''; toast('Criando sua conta…');
+    try {
+      await invokePublicFunction('signup-atleta', { nome, email, senha, atletaSlug: slug, coachEmail, consentAceito: true });
+    } catch (err) {
+      state.ctx.signupError = err.message; return render();
+    }
+    let u;
+    try { u = await auth.login(email, senha, 'atleta'); }
+    catch (err) { state.ctx.signupError = `Conta criada, mas o login automático falhou: ${err.message}. Tente entrar pela tela de login.`; return render(); }
+    await syncRemote();
+    state.ctx = {};
+    toast(`Bem-vindo, ${u.name.split(' ')[0]}!`);
+    tab('athleteHome');
   },
 
   // atletas

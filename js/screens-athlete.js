@@ -309,7 +309,39 @@ export function login(ctx) {
           <input id="login-password" type="password" autocomplete="current-password" placeholder="senha (123456)" style="flex:1;background:none;border:none;outline:none;color:#F4F6F8;font-family:'Manrope';font-size:15px;letter-spacing:.15em;padding:12px 0;"></div>
         <button class="tap btn-primary" data-action="login-enter" style="padding:17px;box-shadow:0 12px 30px -8px rgba(255,106,61,.5);">Entrar como ${role === 'TRAINER' ? 'treinador' : 'atleta'}</button>
         <div class="tap" data-action="future" data-arg="Face ID" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:18px;color:#8A94A3;font-size:14px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF6A3D" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v3a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Entrar com Face ID</div></div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF6A3D" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v3a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Entrar com Face ID</div>
+        ${role === 'ATHLETE' ? `<div class="tap" data-action="tab" data-screen="athleteSignup" style="text-align:center;font-size:13px;color:#FF6A3D;font-weight:700;margin-top:18px;">Não tem conta? Cadastre-se</div>` : ''}</div>
       <div class="tap" data-action="forgot" style="text-align:center;font-size:13px;color:#5A6472;padding-bottom:26px;">Esqueceu a senha?</div>
+    </div>`;
+}
+
+// ── CADASTRO DE ATLETA (autocadastro, Fase 3/Player) ──────────────────────────
+const signupField = (id, type, placeholder, value) => `
+  <div style="background:#14181F;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:4px 16px;margin-bottom:12px;">
+    <input id="${id}" type="${type}" placeholder="${esc(placeholder)}" value="${esc(value || '')}" autocomplete="off" style="width:100%;box-sizing:border-box;background:none;border:none;outline:none;color:#F4F6F8;font-family:'Manrope';font-size:15px;padding:12px 0;"></div>`;
+
+export function signup(ctx) {
+  const consent = !!ctx.signupConsent;
+  return `
+    <div style="position:absolute;inset:0;background:radial-gradient(420px 320px at 50% 8%,rgba(255,106,61,.22),transparent 60%);"></div>
+    <div style="position:relative;height:100%;overflow-y:auto;padding:44px 26px 40px;">
+      <div class="tap" data-action="tab" data-screen="login" style="color:#8A94A3;font-size:14px;margin-bottom:20px;">← Voltar pro login</div>
+      <div style="font-family:'Space Grotesk';font-weight:700;font-size:22px;margin-bottom:4px;">Cadastro de atleta</div>
+      <div style="font-size:13px;color:#8A94A3;margin-bottom:20px;line-height:1.5;">Peça ao seu treinador o e-mail dele — é o código de convite que liga sua conta a ele.</div>
+      ${ctx.signupError ? `<div style="background:rgba(255,93,93,.1);border:1px solid rgba(255,93,93,.3);border-radius:10px;padding:11px 14px;margin-bottom:16px;color:#FF9B9B;font-size:13px;line-height:1.4;">${esc(ctx.signupError)}</div>` : ''}
+      ${signupField('signup-nome', 'text', 'Nome completo', ctx.signupNome)}
+      ${signupField('signup-email', 'email', 'Seu e-mail', ctx.signupEmail)}
+      ${signupField('signup-senha', 'password', 'Crie uma senha (mín. 6 caracteres)', '')}
+      ${signupField('signup-slug', 'text', 'Identificador (ex.: joao-silva)', ctx.signupSlug)}
+      ${signupField('signup-coach', 'email', 'E-mail do treinador (código de convite)', ctx.signupCoach)}
+      <div style="background:#14181F;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:16px;margin-bottom:16px;font-size:12.5px;color:#8A94A3;line-height:1.6;">
+        <div style="font-weight:700;color:#F4F6F8;margin-bottom:6px;">Termo de consentimento (resumo, v1.1)</div>
+        Seus dados de saúde e desempenho (dor, sono, testes físicos, cargas de treino) serão usados exclusivamente para planejar e ajustar o seu treino com o seu treinador. Ferramentas de IA (Groq, chamadas por um servidor — a chave nunca chega ao seu aparelho) apoiam a sugestão de sessões, sempre revisadas pelo treinador antes de valer. Você pode pedir acesso, correção ou eliminação dos seus dados a qualquer momento.
+      </div>
+      <div class="tap" data-action="signup-consent-toggle" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:24px;">
+        <div style="width:20px;height:20px;border-radius:6px;border:1.5px solid ${consent ? '#FF6A3D' : 'rgba(255,255,255,.25)'};background:${consent ? '#FF6A3D' : 'transparent'};flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#0B0E12;font-size:13px;font-weight:700;">${consent ? '✓' : ''}</div>
+        <div style="font-size:13px;color:#C7CFDA;line-height:1.4;">Li e aceito o termo de consentimento para tratamento dos meus dados pessoais e de saúde.</div>
+      </div>
+      <button class="tap btn-primary" data-action="signup-submit" style="padding:17px;width:100%;box-shadow:0 12px 30px -8px rgba(255,106,61,.5);">Criar minha conta</button>
     </div>`;
 }

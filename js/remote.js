@@ -143,6 +143,29 @@ export async function invokeFunction(name, body, timeoutMs = 30000) {
   } finally { clearTimeout(timer); }
 }
 
+// Edge Function pública (sem sessão) — só para o autocadastro do atleta, que
+// por definição roda antes de existir qualquer sessão. A função do servidor
+// (signup-atleta) é quem valida o código de convite e faz a criação com
+// privilégio elevado; o navegador nunca vê a service_role key.
+export async function invokePublicFunction(name, body, timeoutMs = 30000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    // o gateway de Edge Functions exige um JWT válido no Authorization mesmo
+    // pra função "pública" — sem sessão de usuário ainda, usa a própria anon
+    // key (é um JWT do projeto); a função decide sozinha o que fazer com isso.
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      signal: ctl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Edge Function HTTP ${res.status}`);
+    return data;
+  } finally { clearTimeout(timer); }
+}
+
 // Storage privado: baixa o objeto com o JWT do usuário e devolve uma URL local
 // para <img>/<video>. A URL dura somente enquanto a página estiver aberta.
 export async function storageObjectUrl(bucket, path, timeoutMs = 12000) {
