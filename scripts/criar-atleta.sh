@@ -32,6 +32,21 @@ R=$(curl -s -X POST "$URL/auth/v1/signup" -H "apikey: $KEY" -H "Content-Type: ap
 UID_NOVO=$(echo "$R" | jqpy ".get('id') or d.get('user',{}).get('id')" 2>/dev/null || true)
 TOK_NOVO=$(echo "$R" | jqpy ".get('access_token','')" 2>/dev/null || true)
 [ -z "$UID_NOVO" ] && { echo "ERRO no signup ($EMAIL): $R"; exit 1; }
+if [ -z "$TOK_NOVO" ]; then
+  # conta criada (ou já existia) sem sessão imediata — normalmente o projeto
+  # exige confirmação de e-mail antes do primeiro login. Tenta logar direto
+  # pra confirmar a causa com uma mensagem clara em vez de falhar mais na frente.
+  echo "   sem sessão imediata no signup — tentando login pra confirmar a causa…"
+  RL=$(curl -s -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $KEY" \
+    -H "Content-Type: application/json" -d "{\"email\":\"$EMAIL\",\"password\":\"$SENHA\"}")
+  TOK_NOVO=$(echo "$RL" | jqpy ".get('access_token','')" 2>/dev/null || true)
+  if [ -z "$TOK_NOVO" ]; then
+    echo "ERRO: conta $EMAIL existe, mas não há sessão disponível ainda."
+    echo "Resposta do login: $RL"
+    echo "Se a mensagem falar de confirmação de e-mail, confirme o e-mail (verifique a caixa de $EMAIL) e rode este script de novo com os mesmos dados."
+    exit 1
+  fi
+fi
 
 echo "2/4 criando perfil de atleta (vínculo $SLUG)…"
 RB=$(curl -s -w '\n%{http_code}' -X POST "$URL/rest/v1/bt_perfis" -H "apikey: $KEY" -H "Authorization: Bearer $TOK_NOVO" \
