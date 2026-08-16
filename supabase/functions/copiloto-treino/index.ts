@@ -150,15 +150,21 @@ Deno.serve(async (req) => {
     if (!apiKey) return json({ error: 'Copiloto ainda não configurado pelo administrador' }, 503)
 
     // Groq rate-limita chamadas em sequência rápida (ex.: montar microciclo,
-    // que chama esta função várias vezes seguidas) — sem retry, a 2ª/3ª
-    // chamada falha quase sempre com 429. Backoff exponencial curto (o
-    // cliente já tem seu próprio timeout de 30s, então não vale a pena
-    // esperar mais que ~6s no total aqui).
+    // que chama esta função várias vezes seguidas). Um backoff fixo curto
+    // não segurou o limite real desta chave em teste (2026-08-16) — agora lê
+    // o header Retry-After da própria Groq quando ela manda (é quem sabe o
+    // número certo, não um chute nosso) e usa isso pra esperar. Orçamento
+    // total limitado a ~25s pra não estourar o timeout de 30s do cliente
+    // (js/remote.js invokeFunction).
+    const DEADLINE_MS = 25000
+    const started = Date.now()
+    const fallbackDelays = [0, 3000, 7000, 12000]
     let aiResponse: Response | null = null
     let aiData: { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string; code?: string } } = {}
-    const delays = [0, 1200, 2500]
-    for (let attempt = 0; attempt < delays.length; attempt++) {
-      if (delays[attempt]) await new Promise(r => setTimeout(r, delays[attempt]))
+    for (let attempt = 0; attempt < fallbackDelays.length; attempt++) {
+      const elapsed = Date.now() - started
+      if (elapsed >= DEADLINE_MS) break
+      if (fallbackDelays[attempt]) await new Promise(r => setTimeout(r, Math.min(fallbackDelays[attempt], DEADLINE_MS - elapsed)))
       aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -177,12 +183,18 @@ Deno.serve(async (req) => {
       })
       aiData = await aiResponse.json().catch(() => ({}))
       if (aiResponse.ok) break
-      console.error('Groq error', aiResponse.status, aiData.error?.code, aiData.error?.message, `tentativa ${attempt + 1}/${delays.length}`)
+      console.error('Groq error', aiResponse.status, aiData.error?.code, aiData.error?.message, `tentativa ${attempt + 1}/${fallbackDelays.length}`)
       if (aiResponse.status !== 429 && aiResponse.status < 500) break // erro do nosso lado (ex.: prompt inválido) — não adianta repetir
+      const retryAfterSec = Number(aiResponse.headers.get('retry-after'))
+      if (retryAfterSec > 0) {
+        const remaining = DEADLINE_MS - (Date.now() - started)
+        const wait = Math.min(retryAfterSec * 1000, Math.max(remaining, 0))
+        if (wait > 0) await new Promise(r => setTimeout(r, wait))
+      }
     }
     if (!aiResponse || !aiResponse.ok) {
       const isRateLimit = aiResponse?.status === 429
-      return json({ error: isRateLimit ? 'O provedor de IA está com muitas requisições agora — aguarde alguns segundos e tente de novo.' : 'O provedor de IA não conseguiu gerar a sessão' }, 502)
+      return json({ error: isRateLimit ? 'O provedor de IA está com muitas requisições agora — aguarde um pouco e tente essa sessão de novo (as outras do microciclo continuam valendo).' : 'O provedor de IA não conseguiu gerar a sessão' }, 502)
     }
     const result = aiData.choices?.[0]?.message?.content
     if (!result) return json({ error: 'O provedor retornou uma resposta vazia' }, 502)
