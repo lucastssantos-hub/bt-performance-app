@@ -1,6 +1,7 @@
 // screens-coach.js — telas do treinador, renderizadas a partir do db (visual idêntico ao protótipo)
 import { db, auth, recoveryOf, athleteStatus, latestCheckin, nextTournament, weekLoad, sessionLoad, teamReadiness, STATUS_META, todayISO, addDays, diffDays, mondayOf, dayN } from './db.js';
 import { esc, ring, avatar, initialsOf, fmtShort, fmtDow, fmtDayNum, fmtTimeAgo, fmtHoursMin } from './ui.js';
+import { analyzeAthleteWeek } from './decision-engine.js';
 
 const ICONS = {
   back: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F4F6F8" stroke-width="2.2"><path d="m15 18-6-6 6-6"/></svg>`,
@@ -155,6 +156,7 @@ export function coachProfile(ctx) {
       <div class="card" style="border-radius:16px;padding:15px;"><div class="seclabel" style="letter-spacing:.1em;">CARGA SEMANA</div><div style="display:flex;align-items:baseline;gap:6px;margin-top:6px;"><span style="font-family:'Space Grotesk';font-weight:700;font-size:30px;">${wk.toLocaleString('pt-BR')}</span><span style="font-size:12px;color:#8A94A3;">UA</span></div></div>
       <div class="card" style="border-radius:16px;padding:15px;"><div class="seclabel" style="letter-spacing:.1em;">VS SEMANA ANT.</div><div style="display:flex;align-items:baseline;gap:6px;margin-top:6px;"><span style="font-family:'Space Grotesk';font-weight:700;font-size:30px;color:${ratio !== '—' && ratio > 1.3 ? '#FFC24B' : '#34E0A1'};">${ratio}</span></div></div></div>
     <button class="tap btn-primary" data-action="go" data-screen="coachDecision" style="box-shadow:0 12px 30px -8px rgba(255,106,61,.5);">Ver decisão da semana →</button>
+    <button class="tap btn-dark" data-action="go" data-screen="coachCopiloto" style="margin-top:10px;">⚡ Copiloto de sessão</button>
   </div>`;
 }
 
@@ -300,7 +302,7 @@ export function coachDecision(ctx) {
   evid.push([r >= 80 ? '#34E0A1' : r >= 65 ? '#FFC24B' : '#FF5D5D', `Prontidão ${r}${c ? ` · sono ${c.sleepHours.toFixed(1)}h` : ''}`]);
   if (ratio) evid.push([+ratio <= 1.3 ? '#34E0A1' : '#FFC24B', `Carga semana atual:anterior em ${ratio}`]);
   if (nt) evid.push(['#FFC24B', `${nt.name} em ${diffDays(nt.startDate, todayISO())} dias — reduzir 3 dias antes`]);
-  if (c && c.painScore > 0) evid.push([c.painScore >= 7 ? '#FF5D5D' : '#FFC24B', `Dor ${esc(c.painLocation || '')} ${c.painScore}/10`]);
+  if (c && c.painScore > 0) evid.push([c.painScore >= 6 ? '#FF5D5D' : '#FFC24B', `Dor ${esc(c.painLocation || '')} ${c.painScore}/10`]);
   const evidHtml = evid.map(([color, txt]) => `<div style="display:flex;align-items:center;gap:11px;">${color === '#34E0A1' ? ICONS.check('#34E0A1') : ICONS.warn(color)}<span style="font-size:13.5px;color:#C7CFDA;">${txt}</span></div>`).join('');
   return `<div class="pagepad" style="padding-top:58px;">
     <div style="position:absolute;inset:0;background:radial-gradient(420px 300px at 50% 12%,rgba(255,106,61,.16),transparent 62%);pointer-events:none;"></div>
@@ -444,106 +446,14 @@ const RADAR_CAT_META = {
 const RADAR_CONF_COLOR = { ALTA: '#34E0A1', MÉDIA: '#FFC24B', BAIXA: '#8A94A3' };
 
 function radarClassify(a) {
-  const today = todayISO();
-  const c = latestCheckin(a.id);
-  const nt = nextTournament(a.id);
-  const assessments = db.list('assessments', x => x.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date));
-  const assessmentAge = assessments[0] ? diffDays(today, assessments[0].date) : 9999;
-  const lastDoneSessions = db.list('sessions', s => s.athleteId === a.id && s.status === 'COMPLETED' && s.date >= addDays(today, -7)).sort((x, y) => y.date.localeCompare(x.date));
-  const lastPSE = lastDoneSessions[0] ? lastDoneSessions[0].rpeFinal : null;
-  // Fix 1: dor persistente — varre os 7 dias do cache hidratado e detecta 3 consecutivos ≥ 3
-  const last7ck = [];
-  for (let i = 0; i < 7; i++) {
-    const d = addDays(today, -i);
-    last7ck.push(db.list('checkins', x => x.athleteId === a.id && x.date === d)[0] || null);
-  }
-  const adherence7 = last7ck.filter(Boolean).length;
-  let persistentPain = false, consecutivePain = 0, persistentPainNums = '';
-  for (const ck of last7ck) {
-    if (ck && ck.painScore >= 3) {
-      consecutivePain++;
-      if (consecutivePain >= 3) {
-        persistentPain = true;
-        persistentPainNums = last7ck.slice(0, consecutivePain).map(x => x ? x.painScore + '/10' : '—').join(' · ');
-        break;
-      }
-    } else {
-      consecutivePain = 0;
-    }
-  }
-
-  const r = c ? c.readinessScore : (a.recoveryScore || 0);
-  const banda = c ? c.banda : null;
-  const isVermelho = banda === 'VERMELHO' || (banda == null && r > 0 && r < 65);
-  const isAmarelo  = banda === 'AMARELO'  || (banda == null && r >= 65 && r < 80);
-  const isVerde    = banda === 'VERDE'    || (banda == null && r >= 80);
-
-  const signals = [];
-
-  // RISCO
-  if (c && c.painScore >= 6)
-    signals.push({ severity: 'RISCO', type: 'dor_alta', text: `Dor alta${c.painLocation ? ' — ' + c.painLocation : ''}`, numbers: `${c.painScore}/10` });
-  if (c && c.alteraMovimento)
-    signals.push({ severity: 'RISCO', type: 'dor_altera', text: `Dor altera movimento${c.painLocation ? ' — ' + c.painLocation : ''}`, numbers: `${c.painScore}/10` });
-  if (persistentPain)
-    signals.push({ severity: 'RISCO', type: 'dor_persistente', text: `Dor ≥ 3/10 por 3 dias consecutivos`, numbers: persistentPainNums });
-  if (isVermelho)
-    signals.push({ severity: 'RISCO', type: 'prontidao_vermelha', text: `Prontidão VERMELHA`, numbers: `${c && c.prontidao != null ? c.prontidao : '—'}/25` });
-  if (nt && diffDays(nt.startDate, today) <= 7 && c && c.painScore >= 3)
-    signals.push({ severity: 'RISCO', type: 'torneio_dor', text: `Torneio em ${diffDays(nt.startDate, today)} dias com dor relevante`, numbers: `${diffDays(nt.startDate, today)} dias · dor ${c.painScore}/10` });
-
-  // ATENÇÃO
-  if (isAmarelo)
-    signals.push({ severity: 'ATENÇÃO', type: 'prontidao_amarela', text: `Prontidão AMARELA`, numbers: `${c && c.prontidao != null ? c.prontidao : '—'}/25` });
-  if (!c)
-    signals.push({ severity: 'ATENÇÃO', type: 'sem_dados', text: `Sem check-in registrado`, numbers: `0 entradas` });
-  else if (adherence7 <= 2)
-    signals.push({ severity: 'ATENÇÃO', type: 'adesao_baixa', text: `Baixa adesão ao monitoramento`, numbers: `${adherence7}/7 dias` });
-  if (lastPSE != null && lastPSE > 8)
-    signals.push({ severity: 'ATENÇÃO', type: 'pse_alto', text: `PSE alto na última sessão`, numbers: `PSE ${lastPSE}/10` });
-  if (assessmentAge > 60)
-    signals.push({ severity: 'ATENÇÃO', type: 'avaliacao_vencida', text: `Avaliação vencida`, numbers: assessmentAge === 9999 ? 'nunca realizada' : `${assessmentAge} dias` });
-
-  // OPORTUNIDADE
-  if (isVerde)
-    signals.push({ severity: 'OPORTUNIDADE', type: 'prontidao_verde', text: `Prontidão VERDE`, numbers: `${c && c.prontidao != null ? c.prontidao : '—'}/25` });
-  if (!c || c.painScore === 0)
-    signals.push({ severity: 'OPORTUNIDADE', type: 'sem_dor', text: `Sem dor registrada`, numbers: `—` });
-  if (assessmentAge <= 30)
-    signals.push({ severity: 'OPORTUNIDADE', type: 'avaliacao_recente', text: `Avaliação recente`, numbers: `${assessmentAge} dias` });
-
-  // categoria dominante
-  const hasRisco = signals.some(s => s.severity === 'RISCO');
-  const hasAtencao = signals.some(s => s.severity === 'ATENÇÃO');
-  const category = hasRisco ? 'RISCO' : hasAtencao ? 'ATENÇÃO' : 'OPORTUNIDADE';
-
-  // Fix 2: confiança — regra explícita por adherence7 + força da evidência
-  const nRisco = signals.filter(s => s.severity === 'RISCO').length;
-  const nAtencao = signals.filter(s => s.severity === 'ATENÇÃO').length;
-  const hasStrongEvidence = nRisco >= 1;
-  let confidence;
-  if (!c || adherence7 < 3) {
-    confidence = 'BAIXA';
-  } else if (adherence7 >= 5 && hasStrongEvidence) {
-    confidence = 'ALTA';
-  } else if (adherence7 >= 5 && category === 'OPORTUNIDADE' && isVerde) {
-    confidence = 'ALTA';
-  } else if (adherence7 >= 3) {
-    confidence = 'MÉDIA';
-  } else {
-    confidence = 'BAIXA';
-  }
-
-  // sugestão inicial
-  const sugAction = category === 'RISCO'
-    ? ((c && c.painScore >= 6) || (c && c.alteraMovimento) || persistentPain ? 'ENCAMINHAR' : 'REDUZIR')
-    : category === 'ATENÇÃO'
-      ? (isAmarelo ? 'MANTER' : 'REAVALIAR')
-      : 'PROGREDIR';
-
-  const primarySignal = signals.find(s => s.severity === category) || signals[0] || null;
-  return { category, signals, confidence, sugAction, primarySignal };
+  const result = analyzeAthleteWeek({
+    athlete: a, today: todayISO(), checkins: db.list('checkins'), sessions: db.list('sessions'),
+    assessments: db.list('assessments'), tournaments: db.list('tournaments'), travels: db.list('travels'),
+  });
+  return { ...result, sugAction: result.decision };
 }
+
+export const radarAnalysis = (athlete) => radarClassify(athlete);
 
 const SUG_LABEL = {
   PROGREDIR: 'PROGREDIR CARGA +10%', MANTER: 'MANTER PLANO', REDUZIR: 'REDUZIR CARGA −20%',
@@ -595,7 +505,7 @@ export function coachRadar() {
 
 export function coachRadarDetail(ctx) {
   const a = db.get('athletes', ctx.athleteId) || db.list('athletes')[0];
-  const { category, signals, confidence, sugAction } = radarClassify(a);
+  const { category, signals, confidence, sugAction, week, competitiveRisk, missing, dimensions } = radarClassify(a);
   const dec = (db.all().decisions || {})[a.id];
   const m = RADAR_CAT_META[category];
   const c = latestCheckin(a.id);
@@ -628,6 +538,14 @@ export function coachRadarDetail(ctx) {
     ? histItems.map(t => `<div style="font-size:13px;color:#C7CFDA;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);">${t}</div>`).join('')
     : `<div style="font-size:13px;color:#5A6472;">Sem histórico disponível.</div>`;
 
+  const dimensionLabels = { testes: 'Testes físicos', wellness: 'Wellness', carga: 'Carga', contexto: 'Contexto competitivo' };
+  const dimensionsHtml = Object.entries(dimensions).map(([key, value]) => `
+    <div style="display:grid;grid-template-columns:minmax(108px,.72fr) 1.6fr;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);min-width:0;">
+      <div style="font-size:11.5px;font-weight:700;color:#8A94A3;">${dimensionLabels[key]}</div>
+      <div style="font-size:12.5px;color:#C7CFDA;overflow-wrap:anywhere;">${esc(value)}</div>
+    </div>`).join('');
+  const missingHtml = missing.length ? `<div style="margin-top:10px;font-size:12px;color:#FFC24B;line-height:1.5;overflow-wrap:anywhere;">Para elevar a confiança: ${esc(missing.join(' · '))}.</div>` : '';
+
   const decBadge = dec
     ? `<div style="background:rgba(52,224,161,.08);border:1px solid rgba(52,224,161,.22);border-radius:13px;padding:13px 16px;margin-bottom:14px;">
         <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#34E0A1;margin-bottom:4px;">DECISÃO REGISTRADA ✓</div>
@@ -642,6 +560,11 @@ export function coachRadarDetail(ctx) {
     <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:18px;">
       <div style="padding:6px 14px;border-radius:999px;background:${m.bg}.15);font-size:12px;font-weight:700;color:${m.color};">${m.label}</div>
       <div style="padding:6px 14px;border-radius:999px;background:${RADAR_CONF_COLOR[confidence]}18;font-size:12px;font-weight:700;color:${RADAR_CONF_COLOR[confidence]};">Confiança ${confidence}</div>
+      <div style="padding:6px 14px;border-radius:999px;background:#14181F;font-size:12px;font-weight:700;color:#C7CFDA;">${esc(week.type)} · risco ${esc(competitiveRisk.toLowerCase())}</div>
+    </div>
+    <div style="background:#0D1015;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:8px 15px;margin-bottom:14px;">
+      <div class="seclabel" style="letter-spacing:.08em;margin:6px 0 2px;">QUATRO DIMENSÕES LIDAS</div>
+      ${dimensionsHtml}${missingHtml}
     </div>
     <div style="background:#0D1015;border:1px solid ${m.bg}.22);border-radius:18px;padding:17px;margin-bottom:13px;">
       <div style="padding:8px 15px;border-radius:999px;background:${m.bg}.18);display:inline-flex;margin-bottom:14px;">
@@ -660,6 +583,166 @@ export function coachRadarDetail(ctx) {
       <button class="tap btn-dark" data-action="radar-alter" style="padding:15px 18px;width:auto;">Alterar</button>
     </div>
     </div>
+  </div>`;
+}
+
+// ── COPILOTO DE SESSÃO ───────────────────────────────────────────────────────
+
+function mdToHtml(md) {
+  if (!md) return '';
+  const lines = md.split('\n');
+  let html = '';
+  let tableOpen = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\|[\s\-:|]+\|/.test(line)) { continue; } // separator row
+    if (/^\|.+\|$/.test(line)) {
+      const cells = line.slice(1, -1).split('|').map(c => c.trim());
+      const isFirst = !tableOpen;
+      if (!tableOpen) { html += `<div style="margin:8px 0;border:1px solid rgba(255,255,255,.07);border-radius:8px;overflow:hidden;">`; tableOpen = true; }
+      html += `<div style="display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.06);${isFirst?'background:#14181F;':''}">` +
+        cells.map((c, ci) => `<div style="flex:${ci===0?'0 0 42%':'1'};padding:7px 10px;font-size:12px;color:${isFirst?'#8A94A3':'#C7CFDA'};font-weight:${isFirst?'700':'400'};word-break:break-word;">${esc(c)}</div>`).join('') + '</div>';
+      continue;
+    }
+    if (tableOpen && !/^\|/.test(line)) { html += '</div>'; tableOpen = false; }
+    const txt = line.trim();
+    if (!txt) { html += '<div style="height:5px;"></div>'; continue; }
+    if (line.startsWith('# ')) {
+      html += `<div style="font-family:'Space Grotesk';font-weight:700;font-size:16px;color:#F4F6F8;margin:14px 0 6px;">${esc(line.slice(2))}</div>`;
+    } else if (line.startsWith('## ')) {
+      html += `<div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#FF6A3D;margin:12px 0 5px;">${esc(line.slice(3)).toUpperCase()}</div>`;
+    } else if (line.startsWith('### ')) {
+      html += `<div style="font-size:13px;font-weight:700;color:#C7CFDA;margin:9px 0 4px;">${esc(line.slice(4))}</div>`;
+    } else if (/^---+$/.test(txt)) {
+      html += `<div style="border-top:1px solid rgba(255,255,255,.08);margin:12px 0;"></div>`;
+    } else if (line.startsWith('- ')) {
+      const content = esc(line.slice(2)).replace(/\*\*(.+?)\*\*/g, '<strong style="color:#F4F6F8;">$1</strong>');
+      html += `<div style="display:flex;gap:8px;padding:2px 0;"><span style="color:#FF6A3D;flex-shrink:0;">·</span><span style="font-size:13px;color:#C7CFDA;line-height:1.5;">${content}</span></div>`;
+    } else if (/^\*[^*].*[^*]\*$/.test(txt)) {
+      html += `<div style="font-size:12.5px;color:#8A94A3;font-style:italic;margin-top:10px;line-height:1.55;text-align:center;">${esc(txt.slice(1,-1))}</div>`;
+    } else {
+      const content = esc(line).replace(/\*\*(.+?)\*\*/g, '<span style="font-weight:700;color:#F4F6F8;">$1</span>');
+      html += `<div style="font-size:13px;color:#C7CFDA;line-height:1.6;padding:1px 0;">${content}</div>`;
+    }
+  }
+  if (tableOpen) html += '</div>';
+  return html;
+}
+
+export function coachCopiloto(ctx) {
+  const athletes = db.list('athletes');
+  const aId = ctx.copilotoAthleteId || ctx.athleteId || (athletes[0] || {}).id;
+  const a = aId ? (db.get('athletes', aId) || athletes[0]) : athletes[0];
+
+  const c = a ? latestCheckin(a.id) : null;
+  const nt = a ? nextTournament(a.id) : null;
+  const assess = a ? db.list('assessments', x => x.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date))[0] : null;
+  const recentSes = a ? db.list('sessions', s => s.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date))[0] : null;
+
+  let prontidaoVal = '—', prontidaoBanda = '—', prontidaoColor = '#8A94A3';
+  if (c && c.prontidao != null) {
+    prontidaoVal = c.prontidao;
+    if (c.prontidao >= 18) { prontidaoBanda = 'VERDE'; prontidaoColor = '#34E0A1'; }
+    else if (c.prontidao >= 15) { prontidaoBanda = 'AMARELO'; prontidaoColor = '#FFC24B'; }
+    else { prontidaoBanda = 'VERMELHO'; prontidaoColor = '#FF5D5D'; }
+  }
+
+  const torneioLabel = nt ? `${esc(nt.name)} · ${diffDays(nt.startDate, todayISO())} dias` : 'Nenhum cadastrado';
+  const SINAIS_BLOQUEIO = ['dor','machucou','lesionou','travou','fisioterapeuta','médico','cirurgia','inflama','inchou','não aguenta','ruptura','fratura'];
+  const contextText = ctx.copilotoContext || '';
+  const sinaisEncontrados = SINAIS_BLOQUEIO.filter(s => contextText.toLowerCase().includes(s));
+  const hasBlock = sinaisEncontrados.length > 0;
+
+  const isLoading = !!ctx.copilotoLoading;
+  const result = ctx.copilotoResult || '';
+  const isApproved = !!ctx.copilotoApproved;
+
+  const athOptions = athletes.map(x => `<option value="${x.id}" ${x.id === aId ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  const daysTo = nt ? diffDays(nt.startDate, todayISO()) : null;
+
+  return `<div class="pagepad" style="padding-top:58px;padding-bottom:120px;">
+    <div style="display:flex;align-items:center;gap:13px;margin-bottom:20px;">
+      <div class="tap backbtn" data-action="back">${ICONS.back}</div>
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:#FF6A3D;">COPILOTO DE SESSÃO</div>
+        <div style="font-family:'Space Grotesk';font-weight:700;font-size:20px;">Prescrição assistida por IA</div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;margin-bottom:12px;">
+      <div class="seclabel" style="letter-spacing:.1em;margin-bottom:8px;">ATLETA</div>
+      <select id="copiloto-athlete" style="background:#0D1015;border:none;border-radius:8px;font-size:14px;color:#F4F6F8;padding:8px 10px;width:100%;-webkit-appearance:none;outline:none;">${athOptions}</select>
+    </div>
+
+    <div class="card" style="padding:14px 16px;margin-bottom:12px;">
+      <div class="seclabel" style="letter-spacing:.1em;margin-bottom:10px;">ESTADO ATUAL</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div style="background:#0D1015;border-radius:10px;padding:10px 12px;">
+          <div style="font-size:10px;color:#5A6472;letter-spacing:.08em;font-weight:700;margin-bottom:4px;">PRONTIDÃO</div>
+          <div style="font-family:'Space Grotesk';font-weight:700;font-size:22px;color:${prontidaoColor};">${prontidaoVal}<span style="font-size:11px;color:#5A6472;">/25</span></div>
+          <div style="font-size:11px;color:${prontidaoColor};margin-top:2px;">${prontidaoBanda}</div>
+        </div>
+        <div style="background:#0D1015;border-radius:10px;padding:10px 12px;">
+          <div style="font-size:10px;color:#5A6472;letter-spacing:.08em;font-weight:700;margin-bottom:4px;">DOR</div>
+          <div style="font-family:'Space Grotesk';font-weight:700;font-size:22px;color:${c && c.painScore > 0 ? (c.painScore >= 6 ? '#FF5D5D' : '#FFC24B') : '#34E0A1'};">${c && c.painScore > 0 ? c.painScore : '0'}<span style="font-size:11px;color:#5A6472;">/10</span></div>
+          <div style="font-size:11px;color:#8A94A3;margin-top:2px;">${c && c.painScore > 0 ? esc(c.painLocation || 'região?') : 'sem dor'}</div>
+        </div>
+      </div>
+      <div style="background:#0D1015;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10px;color:#5A6472;letter-spacing:.08em;font-weight:700;margin-bottom:4px;">CALENDÁRIO · AVALIAÇÃO</div>
+        <div style="font-size:13px;font-weight:600;">${torneioLabel}${daysTo !== null && daysTo <= 1 ? ' <span style="color:#FF5D5D;font-size:11px;">⚠ COMPETIÇÃO</span>' : daysTo !== null && daysTo <= 3 ? ' <span style="color:#FFC24B;font-size:11px;">⚠ pré-torneio</span>' : ''}</div>
+        ${recentSes ? `<div style="font-size:11px;color:#8A94A3;margin-top:4px;">Última sessão: ${esc(recentSes.title)} · ${diffDays(todayISO(), recentSes.date)} dias</div>` : '<div style="font-size:11px;color:#5A6472;margin-top:4px;">Sem sessões registradas</div>'}
+        ${assess ? `<div style="font-size:11px;color:#8A94A3;margin-top:3px;">Avaliação: CMJ ${assess.cmj}cm · SJ ${assess.sj}cm · Sprint 5m ${assess.sprint5m}s · Assim. MB ${assess.mbAsym}%</div>` : ''}
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;margin-bottom:${hasBlock ? '8px' : '12px'};">
+      <div class="seclabel" style="letter-spacing:.1em;margin-bottom:8px;">CONTEXTO ADICIONAL <span style="font-weight:400;color:#5A6472;font-size:10px;">opcional</span></div>
+      <textarea id="copiloto-context" placeholder="Ex: atleta viajou ontem, chegou bem. Treinou quadra 2h de manhã. Sem dor hoje." rows="3" style="width:100%;background:#0D1015;border:1.5px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;color:#F4F6F8;font-family:'Manrope';font-size:13px;resize:none;outline:none;box-sizing:border-box;">${esc(contextText)}</textarea>
+    </div>
+
+    <div id="copiloto-block-warn" style="display:${hasBlock?'flex':'none'};align-items:flex-start;gap:10px;background:rgba(255,93,93,.08);border:1px solid rgba(255,93,93,.3);border-radius:12px;padding:12px 14px;margin-bottom:12px;">
+      ${ICONS.warn('#FF5D5D')}
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#FF5D5D;">Sinal de bloqueio detectado</div>
+        <div id="copiloto-block-terms" style="font-size:12px;color:#C7CFDA;margin-top:3px;">${hasBlock ? 'Termos: ' + sinaisEncontrados.map(s=>`"${s}"`).join(', ') + ' → apenas A5, A6 ou B7.' : ''}</div>
+      </div>
+    </div>
+
+    ${isLoading ? `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:36px 0;">
+      <div style="width:44px;height:44px;border-radius:50%;border:3px solid rgba(255,106,61,.15);border-top-color:#FF6A3D;animation:spin 0.9s linear infinite;"></div>
+      <div style="font-size:13.5px;color:#8A94A3;">Analisando dados e gerando sessão…</div>
+      <div style="font-size:12px;color:#5A6472;">Motor BT aplicando árvore de decisão</div>
+    </div>
+    ` : `
+    <button class="tap btn-primary" data-action="copiloto-generate" style="box-shadow:0 12px 30px -8px rgba(255,106,61,.45);${result ? 'margin-bottom:20px;' : ''}">
+      ${result ? '↺ Gerar nova sessão' : 'Gerar sessão →'}
+    </button>
+    `}
+
+    ${result && !isLoading ? `
+    <div style="background:#0D1015;border:1px solid rgba(255,106,61,.18);border-radius:18px;padding:18px;margin-bottom:14px;">
+      <div class="seclabel" style="letter-spacing:.1em;margin-bottom:12px;">SESSÃO GERADA</div>
+      <div style="font-size:13.5px;color:#C7CFDA;line-height:1.65;">${mdToHtml(result)}</div>
+    </div>
+    ${!isApproved ? `
+    <div style="display:flex;gap:11px;margin-bottom:10px;">
+      <button class="tap btn-primary" data-action="copiloto-approve" style="flex:1;padding:15px;">Aprovar e salvar ✓</button>
+      <button class="tap btn-dark" data-action="copiloto-adjust" style="padding:15px 18px;width:auto;">Ajustar</button>
+      <button class="tap btn-dark" data-action="copiloto-reject" style="padding:15px 18px;width:auto;">Rejeitar ✗</button>
+    </div>
+    <div style="text-align:center;font-size:11.5px;color:#5A6472;line-height:1.5;margin-bottom:6px;">Esta sessão só vai ao atleta depois que você aprovar</div>
+    ` : `
+    <div style="display:flex;align-items:center;gap:10px;background:rgba(52,224,161,.08);border:1px solid rgba(52,224,161,.25);border-radius:13px;padding:14px;margin-bottom:10px;">
+      ${ICONS.check('#34E0A1')}
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#34E0A1;">Aprovada e salva no plano ✓</div>
+        <div style="font-size:12px;color:#8A94A3;margin-top:2px;">Visível para o atleta em Treino</div>
+      </div>
+    </div>
+    `}
+    ` : ''}
   </div>`;
 }
 

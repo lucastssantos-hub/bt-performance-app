@@ -3,6 +3,8 @@ import { db, auth, syncRemote, ready, saveCheckin, saveDecision, uid, todayISO, 
 import { toast, openModal, closeModal, confirmDialog, field, input, select, textarea, esc, fmtShort } from './ui.js';
 import * as C from './screens-coach.js';
 import * as A from './screens-athlete.js';
+import { invokeFunction } from './remote.js';
+import { analyzeAthleteWeek } from './decision-engine.js';
 
 const NAV_KEY = 'btperf_nav_v1';
 const screens = {
@@ -12,6 +14,7 @@ const screens = {
   coachDecision: C.coachDecision, coachRadar: C.coachRadar, coachRadarDetail: C.coachRadarDetail,
   coachReports: C.coachReports, coachCalendar: C.coachCalendar,
   coachTravels: C.coachTravels, coachNotifications: C.coachNotifications, coachSettings: C.coachSettings,
+  coachCopiloto: C.coachCopiloto,
   athleteHome: A.athleteHome, athleteWellness: A.athleteWellness, athleteWorkout: A.athleteWorkout,
   athleteTournament: A.athleteTournament, athleteRecovery: A.athleteRecovery, athleteHistory: A.athleteHistory,
   athleteMessages: A.athleteMessages, athleteProfile: A.athleteProfile,
@@ -66,6 +69,227 @@ function bindInputs() {
   if (painscore) painscore.addEventListener('change', (e) => { state.ctx.checkin.painScore = Math.max(0, Math.min(10, +e.target.value || 0)); render(); });
   const msgIn = document.getElementById('msg-input');
   if (msgIn) msgIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') actions['msg-send'](); });
+  const copAthleteEl = document.getElementById('copiloto-athlete');
+  if (copAthleteEl) copAthleteEl.addEventListener('change', (e) => {
+    state.ctx.copilotoAthleteId = e.target.value;
+    state.ctx.copilotoResult = ''; state.ctx.copilotoApproved = false;
+    render();
+  });
+  const copCtxEl = document.getElementById('copiloto-context');
+  if (copCtxEl) copCtxEl.addEventListener('input', (e) => {
+    state.ctx.copilotoContext = e.target.value;
+    const SINAIS = ['dor','machucou','lesionou','travou','fisioterapeuta','médico','cirurgia','inflama','inchou','não aguenta','ruptura','fratura'];
+    const found = SINAIS.filter(s => e.target.value.toLowerCase().includes(s));
+    const warnEl = document.getElementById('copiloto-block-warn');
+    const termsEl = document.getElementById('copiloto-block-terms');
+    if (warnEl) warnEl.style.display = found.length ? 'flex' : 'none';
+    if (termsEl && found.length) termsEl.textContent = 'Termos: ' + found.map(s => `"${s}"`).join(', ') + ' → apenas A5, A6 ou B7.';
+  });
+}
+
+// ── copiloto de sessão ────────────────────────────────────────────────────────
+const COPILOTO_SYSTEM_PROMPT_LEGACY = `Você é o copiloto de prescrição física do BT Performance Lab — especialista em preparação física para Beach Tennis profissional (Top 200 internacional). Gere UMA sessão física para o atleta indicado, seguindo ESTRITAMENTE as regras deste motor fechado.
+
+REGRAS ABSOLUTAS:
+- Usar APENAS as 13 sessões da biblioteca fechada (A1–A6, B1–B7). Sessão fora = REJEITADA.
+- Usar APENAS exercícios da biblioteca fechada. Exercício inventado = marcar como IA_INVENTOU_EXERCICIO.
+- Nunca prescrever sessão intensa com: dor ≥6/10, prontidão VERMELHO (≤14), ou torneio em ≤24h.
+- Idioma: PT-BR. Tom: direto, técnico, comissão técnica esportiva.
+- Encerrar SEMPRE com a frase: "Esta sessão aguarda sua aprovação antes de ser registrada — confirma, ajusta ou rejeita?"
+
+## AS 13 SESSÕES
+A1 Força Máxima (Academia) — base de força, 75–85%, 3–4×2–5, descanso 180–300s. Quando: déficit de força, wellness BOM, sem torneio em 48h.
+A2 Força-Velocidade (Academia) — velocidade contra carga, 50–70%, 2–4×3–5, descanso 120–180s. Quando: fase transferência, wellness BOM ou MODERADO.
+A3 Potência (Academia) — saltos/arremessos, intenção máxima, 2–4×3–6, descanso 90–180s. Quando: atleta recuperado, longe de competição.
+A4 Manutenção (Academia) — manter com fadiga mínima, <75%, 2–3×3–4, descanso 120s. Quando: semana de torneio ou carga técnica alta.
+A5 Descarga (Academia) — carga baixa, qualidade máxima, RPE ≤6. Quando: fadiga acumulada, wellness AMARELO ou VERMELHO.
+A6 Prevenção (Academia) — estabilidade e controle, sem falha. Quando: histórico de lesão, foco preventivo.
+B1 Aceleração (Areia) — 5–10s esforço, descanso 1:4–1:6. Quando: trabalhar aceleração, longe de torneio.
+B2 Mudança de Direção (Areia) — COD programado, NUNCA com estímulo externo.
+B3 Reatividade (Areia) — COD com estímulo externo obrigatório (bola, voz, visual). Sem estímulo = B2.
+B4 Potência Rotacional (Areia) — arremessos rotacionais, med ball. PAP/PAPE: pico 6–10min pós contração de condicionamento.
+B5 Deslocamentos Específicos (Areia) — padrões BT: shuffles, crossovers, bounds em areia.
+B6 Pré-torneio (Areia) — ativação apenas, RPE ≤6, volume mínimo, sem exercício novo.
+B7 Pós-torneio (Areia) — recuperação, RPE ≤4, movimento leve.
+
+## ÁRVORE DE DECISÃO (prioridade — primeiro que disparar decide)
+1. Dor ≥6/10 OU que altera movimento? → A5/A6/B7 ou ENCAMINHAR fisio
+2. Torneio em 0–1 dias? → B6 ou descanso
+3. Torneio em 2–3 dias? → B6 ou A4
+4. Torneio em 4–7 dias? → A4 / A2 leve / B5
+5. Viagem longa (≥6h) no dia? → A6/B7/A4 apenas
+6. Prontidão VERMELHO (≤14)? → A5/A6/B7
+7. Prontidão AMARELO (15–17) + carga alta? → A4 ou A5
+8. Tudo claro? → bloco vigente + Decisão da Semana → sessão compatível
+
+## BIBLIOTECA DE EXERCÍCIOS
+
+A1: Principal (1): agachamento com barra, terra hexagonal, terra com barra, double front squat. Complementares (até 2): passada simples, passada 2 steps, passada com suspensão, supino com barra, supino halter, barra fixa, puxada inclinada, face pull, anti-rotação, anti-hiperextensão.
+
+A2: Principal: agachamento com barra, double front squat, terra hexagonal, supino halter, supino com barra. Complementares: med ball AF em pé, med ball AF base contralateral, med ball AC em pé, anti-rotação, face pull.
+
+A3: Grupos (1–2): pogo jumps (vertical/lateral/frente-trás/unilateral) → quedas (solo bilateral, solo assimétrica, caixa bilateral, caixa assimétrica) → hops (linear DC, linear contínuo, lateral contínuo) → bounds (contínuo, lateral DP, com sobrecarga) → drops (vertical bilateral, vertical barreira, diagonal barreira) → arremessos med ball AF/AC (semiajoelhado, em pé, base contralateral) → goblet squat ou double front squat leve c/ máx velocidade. PROGRESSÃO OBRIGATÓRIA: pogo → queda → hop → bound → drop.
+
+A4: Principal (1): goblet squat, double front squat, terra kettlebell, terra hexagonal leve. Complementares (até 2): passada simples, puxada inclinada, face pull, anti-rotação, prancha semiajoelhada.
+
+A5: goblet squat, terra kettlebell, passada simples, anti-rotação, prancha semiajoelhada, prancha no chão, face pull, puxada inclinada.
+
+A6: estabilidade lateral ajoelhado, estabilidade lateral em pé, cortador ajoelhado, prancha semiajoelhada, prancha no chão, prancha na bola, ponte na bola, flexão de joelhos na bola, face pull, anti-rotação.
+
+B1: load and lift, load and lift c/ alternância de pernas, marcha contra a parede, marcha à frente c/ resistência, skip c/ resistência, bound c/ resistência, corrida resistida, utilização de trenós.
+
+B2: load and lift, lateral shuffle, double shuffle, cut and shuffle, lateral shuffle contínuo, lean and crossover, crossover potente, cut and crossover.
+
+B3: mesmos padrões de B2 + estímulo externo obrigatório (sinal visual, bola, adversário, direção chamada, reação a trajetória).
+
+B4: arremesso med ball AF semiajoelhado, arremesso med ball AF em pé, arremesso med ball AF base contralateral, arremesso med ball AC semiajoelhado, arremesso med ball AC em pé, arremesso med ball AC base contralateral, lateral shuffle.
+
+B5: lateral shuffle, double shuffle, cut and shuffle, lean and crossover, crossover potente, cut and crossover, corrida resistida, bounds, hops, pogo jumps.
+
+B6: goblet squat (leve), passada simples (leve), pogo jump vertical, lateral shuffle (baixo volume).
+
+B7: prancha no chão, face pull, goblet squat (muito leve), lateral shuffle (fácil), pogo jump vertical (poucas reps).
+
+## SINAIS DE BLOQUEIO (verificar no contexto do treinador)
+Termos: dor, machucou, lesionou, travou, fisioterapeuta, médico, cirurgia, inflama, inchou, não aguenta, ruptura, fratura → bloquear sessão intensa → apenas A5/A6/B7.
+
+## FORMATO DE SAÍDA OBRIGATÓRIO (markdown)
+# Sessão [CÓDIGO] — [Nome]
+**Atleta:** [nome] · **Data:** [data] · **Duração estimada:** [X] min
+
+## Contexto
+- Prontidão: [X]/25 ([BANDA])
+- Dor: [X/10 · região] (ou "Sem dor registrada")
+- Tipo de semana: [tipo] · Próximo torneio: [nome · data · X dias]
+- Decisão da Semana vigente: [valor]
+
+## Por que esta sessão
+[1–2 linhas: critério da árvore que selecionou + princípio operacional]
+
+## Exercícios
+
+### [Bloco]
+| Exercício | Esquema | Critério de interrupção | Nota de segurança |
+|---|---|---|---|
+| [nome exato da biblioteca] | [séries×reps · descanso · RIR/esforço] | [quando parar] | [se houver, ou —] |
+
+## Restrições aplicadas
+[Bloqueios ativados e o que foi excluído, ou "Nenhuma restrição ativa"]
+
+## Critério de saída do bloco
+[Referência ao critério de avanço/regressão]
+
+---
+*Esta sessão aguarda sua aprovação antes de ser registrada — confirma, ajusta ou rejeita?*`;
+
+async function callCopiloto(userPrompt) {
+  const data = await invokeFunction('copiloto-treino', { userPrompt });
+  if (!data || typeof data.result !== 'string') throw new Error('Resposta inválida do copiloto');
+  return data.result;
+}
+
+const COPILOTO_SESSION_CODES = new Set(['A1','A2','A3','A4','A5','A6','B1','B2','B3','B4','B5','B6','B7']);
+// Espelho exato de conhecimento/motor-prescricao.md §6 (biblioteca fechada) —
+// mantido em sincronia com o mesmo array em supabase/functions/copiloto-treino/index.ts.
+const COPILOTO_EXERCISES = new Set([
+  'estabilidade lateral ajoelhado','estabilidade lateral em pé','cortador ajoelhado',
+  'prancha semiajoelhada','prancha no chão','prancha na bola','prancha no slide',
+  'ponte na bola','flexão de joelhos na bola','flexão de joelhos no slide',
+  'goblet squat','double front squat','agachamento com barra',
+  'passada simples','passada 2 steps','passada com suspensão',
+  'terra kettlebell','terra hexagonal','terra com barra',
+  'apoio','supino halter','supino com barra',
+  'empurrar barra semiajoelhado','supino inclinado','double press',
+  'face pull','puxada inclinada','barra fixa',
+  'arremesso med ball af semiajoelhado','arremesso med ball af em pé',
+  'arremesso med ball af base contralateral','arremesso med ball ac semiajoelhado',
+  'arremesso med ball ac em pé','arremesso med ball ac base contralateral',
+  'pogo jump vertical','pogo jump lateral','pogo jump frente/trás','pogo jump unilateral',
+  'queda no solo bilateral','queda no solo assimétrica','queda da caixa bilateral','queda da caixa assimétrica',
+  'hop linear dc','hop linear contínuo','hop lateral contínuo',
+  'bound contínuo','bound lateral dp','bound contínuo com sobrecarga',
+  'drop vertical bilateral','drop vertical barreira','drop diagonal barreira',
+  'load and lift','load and lift com alternância de pernas','marcha contra a parede',
+  'marcha à frente com resistência','skip com resistência','bound com resistência',
+  'corrida resistida','utilização de trenós',
+  'lateral shuffle','double shuffle','cut and shuffle','lateral shuffle contínuo',
+  'lean and crossover','crossover potente','cut and crossover',
+]);
+const normalizeExercise = (value) => String(value || '')
+  .replace(/\*\*/g, '').replace(/\s*\([^)]*(leve|fácil|reps)[^)]*\)\s*/gi, '').trim().toLowerCase();
+
+function validateCopilotoResult(result, { checkin, contextText }) {
+  const code = (result.match(/^#\s+Sessão\s+(A[1-6]|B[1-7])\b/im) || [])[1]?.toUpperCase();
+  if (!code || !COPILOTO_SESSION_CODES.has(code)) return { ok: false, error: 'A resposta não contém um código de sessão válido (A1–A6 ou B1–B7).' };
+  const duration = +(result.match(/Duração estimada:\*\*?\s*(\d+)/i) || [])[1];
+  if (!duration || duration < 15 || duration > 120) return { ok: false, error: 'A duração precisa estar explícita e entre 15 e 120 minutos.' };
+  const rows = result.split('\n').filter(line => /^\|.+\|$/.test(line) && !/^\|[\s\-:|]+\|$/.test(line));
+  const exercises = rows.slice(1).map((line, index) => {
+    const cells = line.slice(1, -1).split('|').map(cell => cell.trim());
+    const scheme = cells[1] || '';
+    const dose = scheme.match(/(\d+)\s*[x×]\s*([^.·|]+)/i);
+    const rest = scheme.match(/(?:descanso|recuperação)\s*:? ?([^.·|]+)/i);
+    return {
+      id: `ia-${index + 1}`, name: cells[0].replace(/\*\*/g, ''), scheme,
+      sets: dose ? Number(dose[1]) : 1, reps: dose ? dose[2].trim() : scheme,
+      rest: rest ? rest[1].trim() : '', stopCriteria: cells[2] || '', safetyNote: cells[3] || '',
+      status: 'PENDING', order: index,
+    };
+  }).filter(exercise => exercise.name && normalizeExercise(exercise.name) !== 'exercício');
+  if (!exercises.length) return { ok: false, error: 'Nenhum exercício estruturado foi encontrado na tabela da sessão.' };
+  const invented = exercises.filter(exercise => !COPILOTO_EXERCISES.has(normalizeExercise(exercise.name)));
+  if (invented.length) return { ok: false, error: `Exercício fora da biblioteca: ${invented.map(e => e.name).join(', ')}.` };
+  const blockingTerms = ['dor','machucou','lesionou','travou','fisioterapeuta','médico','cirurgia','inflama','inchou','não aguenta','ruptura','fratura'];
+  const textBlock = blockingTerms.some(term => String(contextText || '').toLowerCase().includes(term));
+  const clinicalBlock = !!checkin && (checkin.painScore >= 6 || checkin.alteraMovimento);
+  if ((textBlock || clinicalBlock) && !['A5','A6','B7'].includes(code)) {
+    return { ok: false, error: `Bloqueio clínico ativo: a sessão ${code} não é segura. Use somente A5, A6 ou B7 e encaminhe para avaliação profissional.` };
+  }
+  return { ok: true, code, duration, exercises };
+}
+
+function buildCopilotoPrompt(a, c, nt, assess, recentSessions, wkCurrent, wkPrev, contextText, analysis) {
+  const daysTo = nt ? diffDays(nt.startDate, todayISO()) : null;
+  const weekType = !nt ? 'TREINO' : daysTo <= 0 ? 'COMPETIÇÃO' : daysTo <= 3 ? 'PRÉ-COMPETIÇÃO' : daysTo <= 7 ? 'PRÉ-COMPETIÇÃO' : 'TREINO';
+  return [
+    `Atleta: ${a.name}${a.age ? ' (' + a.age + ' anos)' : ''}`,
+    `Data de hoje: ${todayISO()}`,
+    '',
+    '## Estado atual',
+    `Prontidão: ${c && c.prontidao != null ? c.prontidao + '/25 (banda: ' + (c.banda || '?') + ')' : 'sem check-in recente'}`,
+    `Dor: ${c ? (c.painScore > 0 ? c.painScore + '/10 em ' + (c.painLocation || 'região?') + (c.alteraMovimento ? ' — ALTERA MOVIMENTO' : '') : '0/10 — sem dor') : 'sem check-in recente'}`,
+    `Último check-in: ${c ? c.date : 'nenhum'}`,
+    '',
+    '## Calendário',
+    `Tipo de semana: ${weekType}`,
+    `Próximo torneio: ${nt ? nt.name + ' · ' + nt.startDate + ' · em ' + daysTo + ' dias (prioridade ' + (nt.isMainTarget ? 'A' : 'B') + ')' : 'nenhum cadastrado'}`,
+    '',
+    '## Avaliação física',
+    assess ? [
+      `Data: ${assess.date}`,
+      `CMJ: ${assess.cmj}cm · SJ: ${assess.sj}cm (CMJ/SJ: ${assess.sj > 0 ? (assess.cmj/assess.sj).toFixed(2) : '—'})`,
+      `Sprint 5m: ${assess.sprint5m}s · Sprint 10m: ${assess.sprint10m}s`,
+      `MB Lateral D: ${assess.mbLateralD}m · E: ${assess.mbLateralE}m (assimetria: ${assess.mbAsym}%)`,
+      assess.agility505 ? `5-0-5 areia: ${assess.agility505}s` : '',
+    ].filter(Boolean).join('\n') : 'Sem avaliação cadastrada.',
+    '',
+    '## Sessões recentes',
+    recentSessions.length ? recentSessions.slice(0, 5).map(s =>
+      `${s.date}: ${s.title} (${s.type} · ${s.durationMinutes}min · RPE ${s.status === 'COMPLETED' ? s.rpeFinal : s.targetRpe} · ${sessionLoad(s)} UA)`
+    ).join('\n') : 'Nenhuma sessão registrada.',
+    '',
+    `Carga semana atual: ${wkCurrent} UA${wkPrev ? ' · semana anterior: ' + wkPrev + ' UA (ratio: ' + (wkPrev > 0 ? (wkCurrent/wkPrev).toFixed(2) : '—') + ')' : ''}`,
+    '',
+    '## Radar de decisão determinístico',
+    `Decisão da Semana vigente: ${analysis.decision}`,
+    `Confiança dos dados: ${analysis.confidence}`,
+    `Categoria: ${analysis.category} · risco competitivo: ${analysis.competitiveRisk}`,
+    `Sinais: ${analysis.signals.length ? analysis.signals.map(s => `${s.type} (${s.severity}: ${s.numbers})`).join('; ') : 'nenhum sinal adicional'}`,
+    `Dados faltantes: ${analysis.missing.length ? analysis.missing.join('; ') : 'nenhum'}`,
+    contextText ? '\n## Contexto adicional do treinador\n' + contextText : '',
+    '',
+    'Gere a sessão física para hoje seguindo o motor do BT Performance Lab.',
+  ].filter(l => l !== null && l !== undefined).join('\n').trim();
 }
 
 // ── formulários ──────────────────────────────────────────────────────────────
@@ -325,7 +549,8 @@ const actions = {
       const planned = db.list('sessions', s => s.athleteId === a.id && s.status === 'PLANNED' && s.date >= mon && s.date <= addDays(mon, 6));
       planned.forEach(s => db.update('sessions', s.id, { plannedLoad: Math.round(s.plannedLoad * factor) }));
     }
-    saveDecision(a.id, { sugerida: dec, final: dec, note: `Confirmado via Radar em ${fmtShort(todayISO())}.`, confianca: confidence });
+    const analysis = C.radarAnalysis(a);
+    saveDecision(a.id, { sugerida: dec, final: dec, note: `Confirmado via Radar em ${fmtShort(todayISO())}.`, confianca: confidence, analysis });
     toast(`Decisão ${dec} confirmada ✓`); render();
   },
   'radar-alter': () => {
@@ -337,7 +562,7 @@ const actions = {
     ].join(''), {
       onSubmit(d) {
         if (!d.note || !d.note.trim()) return toast('Motivo obrigatório ao alterar a sugestão.', 'err');
-        saveDecision(a.id, { final: d.decision, note: d.note.trim() });
+        saveDecision(a.id, { sugerida: C.radarAnalysis(a).sugAction, final: d.decision, note: d.note.trim(), analysis: C.radarAnalysis(a) });
         closeModal(); toast('Decisão alterada e registrada'); render();
       }
     });
@@ -436,6 +661,91 @@ const actions = {
         db.insert('notifications', { userId: a.trainerId, title: `${a.name.split(' ')[0]} completou ${s.title}`, description: `RPE ${rpe} · ${s.durationMinutes} min · ${Math.round(s.durationMinutes * rpe)} UA`, type: 'success', read: false, createdAt: Date.now() });
         closeModal(); toast(`Treino finalizado · ${Math.round(s.durationMinutes * rpe)} UA`); render();
       }
+    });
+  },
+
+  // copiloto de sessão
+  'copiloto-generate': async () => {
+    const contextEl = document.getElementById('copiloto-context');
+    const contextText = (contextEl && contextEl.value) || state.ctx.copilotoContext || '';
+    state.ctx.copilotoContext = contextText;
+    const a = db.get('athletes', state.ctx.copilotoAthleteId || state.ctx.athleteId) || db.list('athletes')[0];
+    if (!a) return toast('Nenhum atleta selecionado', 'err');
+    const c = latestCheckin(a.id);
+    const nt = nextTournament(a.id);
+    const assess = db.list('assessments', x => x.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date))[0] || null;
+    const recentSessions = db.list('sessions', s => s.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date));
+    const mon = mondayOf(todayISO());
+    const wkCurrent = weekLoad(a.id, mon);
+    const wkPrev = weekLoad(a.id, addDays(mon, -7));
+    const analysis = analyzeAthleteWeek({
+      athlete: a, today: todayISO(), checkins: db.list('checkins'), sessions: db.list('sessions'),
+      assessments: db.list('assessments'), tournaments: db.list('tournaments'), travels: db.list('travels'),
+    });
+    if (analysis.decision === 'ENCAMINHAR') {
+      return toast('Prescrição bloqueada: os dados atuais pedem encaminhamento profissional antes de montar o treino.', 'err');
+    }
+    const userPrompt = buildCopilotoPrompt(a, c, nt, assess, recentSessions, wkCurrent, wkPrev, contextText, analysis);
+    state.ctx.copilotoLoading = true;
+    state.ctx.copilotoResult = '';
+    state.ctx.copilotoApproved = false;
+    render();
+    try {
+      const result = await callCopiloto(userPrompt);
+      state.ctx.copilotoResult = result;
+      state.ctx.copilotoLoading = false;
+      render();
+    } catch (err) {
+      state.ctx.copilotoLoading = false;
+      toast(`Erro na API: ${err.message}`, 'err');
+      render();
+    }
+  },
+  'copiloto-approve': () => {
+    const result = state.ctx.copilotoResult;
+    if (!result) return;
+    const a = db.get('athletes', state.ctx.copilotoAthleteId || state.ctx.athleteId) || db.list('athletes')[0];
+    if (!a) return;
+    const validation = validateCopilotoResult(result, { checkin: latestCheckin(a.id), contextText: state.ctx.copilotoContext || '' });
+    if (!validation.ok) return toast(`Sessão bloqueada: ${validation.error}`, 'err');
+    const titleMatch = result.match(/^# (.+)$/m);
+    const title = titleMatch ? titleMatch[1].replace(/\*\*/g, '').trim() : 'Sessão prescrita por IA';
+    const durMatch = result.match(/Duração estimada:\*\*?\s*(\d+)/i);
+    const duration = validation.duration;
+    const isSand = validation.code.startsWith('B');
+    const isRegen = /Descarga|Prevenção|Pós-torneio/i.test(title);
+    const type = isRegen ? 'Regenerativo' : isSand ? 'Quadra' : /Potência/i.test(title) ? 'Potência' : 'Força';
+    db.insert('sessions', {
+      athleteId: a.id, date: todayISO(), title, type,
+      location: isSand ? 'SAND' : 'GYM',
+      durationMinutes: duration, targetRpe: isRegen ? 5 : 7,
+      plannedLoad: Math.round(duration * (isRegen ? 5 : 7)),
+      notes: result, prescrita: false, aiAssisted: true, sessionCode: validation.code,
+      exercises: validation.exercises, status: 'PLANNED',
+    });
+    state.ctx.copilotoApproved = true;
+    toast('Sessão aprovada e salva no plano ✓');
+    render();
+  },
+  'copiloto-reject': () => {
+    state.ctx.copilotoResult = '';
+    state.ctx.copilotoApproved = false;
+    toast('Sessão rejeitada — gere uma nova', 'warn');
+    render();
+  },
+  'copiloto-adjust': () => {
+    const result = state.ctx.copilotoResult || '';
+    if (!result) return;
+    openModal('Ajustar sugestão da IA', [
+      `<div style="font-size:12.5px;color:#8A94A3;line-height:1.5;margin-bottom:12px;">O professor continua responsável pela dose final. A sessão será validada novamente antes de salvar.</div>`,
+      field('Sessão', textarea('result', { value: result, rows: 18 })),
+    ].join(''), {
+      submitLabel: 'Aplicar ajustes',
+      onSubmit(d) {
+        state.ctx.copilotoResult = String(d.result || '').trim();
+        state.ctx.copilotoApproved = false;
+        closeModal(); toast('Ajustes aplicados — revise e aprove'); render();
+      },
     });
   },
 

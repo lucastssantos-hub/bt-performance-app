@@ -1,2 +1,8 @@
 .vercel/
 .DS_Store
+
+# Config local do Claude Code (não é conteúdo do projeto)
+.claude/
+
+# Estado local da Supabase CLI (versões, ref do projeto, URL do pooler — gerado por máquina)
+supabase/.temp/

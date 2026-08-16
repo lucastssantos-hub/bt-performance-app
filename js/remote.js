@@ -117,3 +117,47 @@ export const restUpsert = (table, rows) =>
 export const restPatch = (path, patch) =>
   rest(path, { method: 'PATCH', body: patch, headers: { Prefer: 'return=representation' } });
 export const restDelete = (path) => rest(path, { method: 'DELETE' });
+
+// Edge Functions autenticadas. Segredos de provedores de IA permanecem no
+// servidor; o navegador envia somente o JWT da sessão do professor.
+export async function invokeFunction(name, body, timeoutMs = 30000) {
+  if (!sess) throw new Error('sem sessão');
+  if (sess.expires_at - 60 <= Date.now() / 1000) await refreshIfNeeded();
+  if (!sess) throw new Error('sessão expirada');
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${sess.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body || {}),
+      signal: ctl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Edge Function HTTP ${res.status}`);
+    return data;
+  } finally { clearTimeout(timer); }
+}
+
+// Storage privado: baixa o objeto com o JWT do usuário e devolve uma URL local
+// para <img>/<video>. A URL dura somente enquanto a página estiver aberta.
+export async function storageObjectUrl(bucket, path, timeoutMs = 12000) {
+  if (!sess) throw new Error('sem sessão');
+  if (sess.expires_at - 60 <= Date.now() / 1000) await refreshIfNeeded();
+  if (!sess) throw new Error('sessão expirada');
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const encodedPath = String(path || '').split('/').map(encodeURIComponent).join('/');
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${encodeURIComponent(bucket)}/${encodedPath}`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${sess.access_token}` },
+      signal: ctl.signal,
+    });
+    if (!res.ok) throw new Error(`Storage HTTP ${res.status}`);
+    return URL.createObjectURL(await res.blob());
+  } finally { clearTimeout(timer); }
+}

@@ -12,7 +12,7 @@
 //   notifications, messages, reports, settings
 import {
   session, signIn, signOut, refreshIfNeeded,
-  restGet, restPost, restUpsert, restPatch, restDelete, falhouSync, syncOk,
+  restGet, restPost, restUpsert, restPatch, restDelete, storageObjectUrl, falhouSync, syncOk,
 } from './remote.js';
 
 const SNAP = 'btperf_cache_v2';   // snapshot do cache canônico (render instantâneo)
@@ -134,6 +134,11 @@ function prescToSession(r, bibS, bibE) {
       id: e.exercicio_id || 'ex' + i, name: (bibE[e.exercicio_id] || {}).nome || e.exercicio_id || 'exercício',
       sets: e.series ?? '', reps: e.repeticoes ?? '', intensity: e.intensidade || '', rest: e.descanso || '',
       order: e.ordem ?? i, status: r.status === 'CONCLUIDA' ? 'DONE' : 'PENDING',
+      mediaUrl: (bibE[e.exercicio_id] || {}).mediaUrl || '',
+      mediaType: (bibE[e.exercicio_id] || {}).mediaType || '',
+      description: (bibE[e.exercicio_id] || {}).descricao_curta || '',
+      instructions: (bibE[e.exercicio_id] || {}).instrucoes || [],
+      stopCriteria: (bibE[e.exercicio_id] || {}).criterios_interrupcao || [],
     })),
     notes: r.observacoes || '',
   };
@@ -154,7 +159,7 @@ function generalIndexOf(a) {
 // ── hidratação: tabelas canônicas → cache em memória ─────────────────────────
 async function hydrate() {
   const monday = mondayOf(todayISO());
-  const [perfis, atletas, monit, dor, pront, carga, presc, bibS, bibE, aval, torn, viag, dec] = await Promise.all([
+  const [perfis, atletas, monit, dor, pront, carga, presc, bibS, bibE, bibM, aval, torn, viag, dec] = await Promise.all([
     restGet('bt_perfis?select=*'),
     restGet('bt_atletas?select=*&order=nome'),
     restGet('bt_monitoramento_diario?select=*&order=data.desc&limit=500'),
@@ -163,7 +168,8 @@ async function hydrate() {
     restGet('bt_carga_sessoes?select=*&order=data.desc&limit=800'),
     restGet('bt_sessoes_prescritas?select=*&order=data.desc&limit=200'),
     restGet('bt_biblioteca_sessoes?select=codigo,nome,ambiente'),
-    restGet('bt_biblioteca_exercicios?select=exercicio_id,nome'),
+    restGet('bt_biblioteca_exercicios?select=*'),
+    restGet('bt_exercicio_midias?select=*&ativo=eq.true&finalidade=eq.execucao&order=ordem'),
     restGet('bt_avaliacoes?select=*&order=data.desc&limit=1000'),
     restGet('bt_torneios?select=*'),
     restGet('bt_viagens?select=*'),
@@ -219,7 +225,24 @@ async function hydrate() {
   }));
 
   const bibSesM = {}; (bibS || []).forEach(b => { bibSesM[b.codigo] = b; });
-  const bibExM = {}; (bibE || []).forEach(b => { bibExM[b.exercicio_id] = b; });
+  const bibExM = {}; (bibE || []).forEach(b => { bibExM[b.exercicio_id] = { ...b }; });
+  const prescribedIds = new Set((presc || []).flatMap(p => (p.exercicios || []).map(e => e.exercicio_id).filter(Boolean)));
+  const preferredMedia = {};
+  (bibM || []).forEach(m => {
+    if (!preferredMedia[m.exercicio_id] || (m.demonstrador === 'neutro' && preferredMedia[m.exercicio_id].demonstrador !== 'neutro')) {
+      preferredMedia[m.exercicio_id] = m;
+    }
+  });
+  await Promise.all([...prescribedIds].map(async exerciseId => {
+    const m = preferredMedia[exerciseId];
+    if (!m || !bibExM[exerciseId]) return;
+    try {
+      bibExM[exerciseId].mediaUrl = await storageObjectUrl(m.storage_bucket, m.storage_path);
+      bibExM[exerciseId].mediaType = m.tipo;
+    } catch (err) {
+      console.warn(`[db] mídia indisponível para ${exerciseId}:`, err && err.message);
+    }
+  }));
   const sessions = [
     ...(carga || []).map(rowToSession),
     ...(presc || []).map(r => prescToSession(r, bibSesM, bibExM)),
@@ -256,7 +279,10 @@ async function hydrate() {
     const k = r.viagem_id || 'v' + r.id;
     viagById[k] = viagById[k] || {
       id: k, tournamentId: extra.tournamentId || '', origin: extra.origin || '', destination: r.destino || '',
-      departureDate: r.data_ida, arrivalDate: r.data_volta, hotel: extra.hotel || '', notes: extra.notes || '',
+      athleteId: r.atleta_id, departureDate: r.data_ida, arrivalDate: r.data_volta,
+      travelHours: r.horas_deslocamento != null ? +r.horas_deslocamento : null,
+      timezoneHours: r.fuso_horas != null ? +r.fuso_horas : null,
+      hotel: extra.hotel || '', notes: extra.notes || '',
     };
   });
 
@@ -493,27 +519,34 @@ export async function saveCheckin(athleteId, ck) {
 }
 
 // ── decisão da semana: 6 valores oficiais + evidências/inputs/versão ─────────
-export function saveDecision(athleteId, { sugerida, final, note, confianca }) {
+export function saveDecision(athleteId, { sugerida, final, note, confianca, analysis }) {
   const monday = mondayOf(todayISO());
   const raw = (cache.decisoesRaw || {})[athleteId];
   const decSug = sugerida || (raw && raw.decisao_sugerida) || final;
   const c = latestCheckin(athleteId);
   const wk = weekLoad(athleteId, monday), prevWk = weekLoad(athleteId, addDays(monday, -7));
   const nt = nextTournament(athleteId);
-  const evidencias = [];
+  const evidencias = analysis ? analysis.signals.map(s => ({ sinal: s.type, valor: s.numbers, peso: s.weight, severidade: s.severity })) : [];
   if (c && c.prontidao != null) evidencias.push({ sinal: 'prontidao', valor: c.prontidao, banda: c.banda, regra: 'bt_prontidao_v1' });
   if (c && c.painScore > 0) evidencias.push({ sinal: 'dor', valor: c.painScore, regiao: c.painLocation || null });
   if (prevWk) evidencias.push({ sinal: 'razao_carga_semanal', valor: +(wk / prevWk).toFixed(2) });
   if (nt) evidencias.push({ sinal: 'proximo_torneio', valor: diffDays(nt.startDate, todayISO()), nome: nt.name });
   const row = {
     atleta_id: athleteId, semana_inicio: monday,
-    decisao_sugerida: decSug, confianca: confianca || (raw && raw.confianca) || 'BAIXA',
-    justificativa: note || null, evidencias,
+    tipo_semana: analysis ? analysis.week.type.replace('PRÉ-COMPETIÇÃO', 'PRE-COMPETICAO').replace('PÓS-COMPETIÇÃO', 'POS-COMPETICAO').replace('COMPETIÇÃO', 'COMPETICAO') : (raw && raw.tipo_semana) || null,
+    decisao_sugerida: decSug,
+    confianca: String(confianca || (analysis && analysis.confidence) || (raw && raw.confianca) || 'BAIXA').replace('MÉDIA', 'MEDIA'),
+    justificativa: analysis
+      ? `Testes: ${analysis.dimensions.testes}. Wellness: ${analysis.dimensions.wellness}. Carga: ${analysis.dimensions.carga}. Contexto: ${analysis.dimensions.contexto}.${note ? ` Decisão humana: ${note}` : ''}`
+      : note || null,
+    evidencias,
     inputs: {
       prontidao: c ? c.prontidao : null, prontidao_versao: 'v1-subjetiva',
       carga_semana: wk, carga_semana_anterior: prevWk,
       dor_max: c ? c.painScore || 0 : 0,
       proximo_torneio: nt ? { nome: nt.name, em_dias: diffDays(nt.startDate, todayISO()) } : null,
+      dimensoes: analysis ? analysis.dimensions : null,
+      lacunas: analysis ? analysis.missing : [],
     },
     versao_regras: 'app-mvp-v2 (decisão administrativa) / canonical v1.2',
     decisao_final: final, motivo_ajuste: final !== decSug ? (note || 'ajuste manual do treinador') : null,
@@ -539,7 +572,7 @@ export function nextTournament(athleteId) {
 export function athleteStatus(a) {
   const c = latestCheckin(a.id);
   const r = c ? c.readinessScore : (a.recoveryScore || 0);
-  if ((c && c.painScore >= 7) || a.status === 'INJURED') return 'INJURED';
+  if ((c && c.painScore >= 6) || a.status === 'INJURED') return 'INJURED';
   if (r > 0 && r < 65) return 'ATTENTION';
   const nt = nextTournament(a.id);
   if (nt && diffDays(nt.startDate, todayISO()) <= 7) return 'COMPETING_SOON';

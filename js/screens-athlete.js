@@ -84,7 +84,7 @@ export function athleteWellness(ctx) {
       ${scaleRow('Dor muscular', 'musclePain', ck.musclePain, ['Nenhuma', 'Leve', 'Moderada', 'Forte', 'Intensa'], true)}
       ${scaleRow('Estresse', 'stress', ck.stress, ['Baixo', 'Leve', 'Médio', 'Alto', 'Crítico'], true)}
       ${scaleRow('Humor', 'humor', ck.humor, ['Péssimo', 'Baixo', 'Neutro', 'Bom', 'Ótimo'], false)}
-      <div><div style="display:flex;justify-content:space-between;margin-bottom:11px;"><span style="font-size:14.5px;font-weight:600;">Dor localizada</span><span style="font-size:13px;color:${ck.painScore >= 7 ? '#FF5D5D' : ck.painScore > 0 ? '#FFC24B' : '#34E0A1'};font-weight:700;">${ck.painScore > 0 ? ck.painScore + '/10' : 'sem dor'}</span></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:11px;"><span style="font-size:14.5px;font-weight:600;">Dor localizada</span><span style="font-size:13px;color:${ck.painScore >= 6 ? '#FF5D5D' : ck.painScore > 0 ? '#FFC24B' : '#34E0A1'};font-weight:700;">${ck.painScore > 0 ? ck.painScore + '/10' : 'sem dor'}</span></div>
         <div style="display:flex;gap:8px;">
           <input id="ck-painloc" placeholder="região (ex: lombar)" value="${esc(ck.painLocation)}" style="flex:1.4;background:#14181F;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;color:#F4F6F8;font-family:'Manrope';font-size:13px;outline:none;">
           <input id="ck-painscore" type="number" min="0" max="10" value="${ck.painScore}" style="flex:.6;background:#14181F;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;color:#F4F6F8;font-family:'Manrope';font-size:13px;outline:none;"></div>
@@ -108,11 +108,13 @@ export function athleteWorkout(ctx) {
   const rows = sess.exercises.sort((x, y) => x.order - y.order).map((e, i) => {
     const isDone = e.status === 'DONE';
     const isCurrent = !isDone && sess.exercises.filter(x => x.order < e.order && x.status !== 'DONE').length === 0 && sess.status === 'IN_PROGRESS';
-    return `<div class="tap" data-action="exercise-toggle" data-arg="${e.id}" style="display:flex;align-items:center;gap:13px;background:#0D1015;border:1px solid ${isCurrent ? 'rgba(255,106,61,.2)' : 'rgba(255,255,255,.06)'};border-radius:14px;padding:14px 15px;">
+    return `<div class="tap" data-action="exercise-toggle" data-arg="${e.id}" style="display:flex;align-items:center;gap:13px;background:#0D1015;border:1px solid ${isCurrent ? 'rgba(255,106,61,.2)' : 'rgba(255,255,255,.06)'};border-radius:14px;padding:12px 13px;">
+      ${e.mediaUrl ? `<img src="${esc(e.mediaUrl)}" alt="Execução de ${esc(e.name)}" loading="lazy" style="width:68px;height:68px;border-radius:11px;object-fit:cover;background:#14181F;flex-shrink:0;${isDone ? 'opacity:.55;' : ''}">` : ''}
       <div style="width:30px;height:30px;border-radius:9px;background:${isDone ? 'rgba(52,224,161,.13)' : isCurrent ? '#FF6A3D' : '#1C232C'};display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk';font-weight:700;font-size:13px;color:${isCurrent ? '#0B0E12' : '#F4F6F8'};">
         ${isDone ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34E0A1" stroke-width="2.6"><path d="M5 12l5 5L20 7"/></svg>' : i}</div>
-      <div style="flex:1;"><div style="font-size:14.5px;font-weight:700;${isDone ? 'color:#8A94A3;text-decoration:line-through;' : ''}">${esc(e.name)}</div>
-      <div style="font-size:12px;color:#8A94A3;">${e.sets} × ${esc(String(e.reps))}${e.intensity && e.intensity !== '—' ? ' · ' + esc(e.intensity) : ''}</div></div>
+      <div style="flex:1;min-width:0;"><div style="font-size:14.5px;font-weight:700;overflow-wrap:anywhere;${isDone ? 'color:#8A94A3;text-decoration:line-through;' : ''}">${esc(e.name)}</div>
+      <div style="font-size:12px;color:#8A94A3;">${e.sets} × ${esc(String(e.reps))}${e.intensity && e.intensity !== '—' ? ' · ' + esc(e.intensity) : ''}</div>
+      ${e.description ? `<div style="font-size:11.5px;color:#5A6472;margin-top:3px;line-height:1.35;">${esc(e.description)}</div>` : ''}</div>
       ${isCurrent ? '<span style="font-size:12px;color:#FF6A3D;font-weight:700;">em curso</span>' : ''}</div>`;
   }).join('');
   let cta;
