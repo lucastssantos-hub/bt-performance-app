@@ -39,17 +39,24 @@ curl -sf -X POST "$URL/rest/v1/bt_perfis" -H "apikey: $KEY" -H "Authorization: B
   -d "[{\"user_id\":\"$UID_NOVO\",\"papel\":\"atleta\",\"nome\":\"$NOME\",\"atleta_id\":\"$SLUG\"}]" > /dev/null
 
 echo "3/4 logando como treinador e criando a ficha…"
-TOK_COACH=$(curl -sf -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $KEY" \
-  -H "Content-Type: application/json" -d "{\"email\":\"$COACH_EMAIL\",\"password\":\"$COACH_SENHA\"}" | jqpy "['access_token']")
-COACH_UID=$(curl -sf -H "apikey: $KEY" -H "Authorization: Bearer $TOK_COACH" \
-  "$URL/rest/v1/bt_perfis?select=user_id&papel=eq.treinador" | jqpy "[0]['user_id']")
-curl -sf -X POST "$URL/rest/v1/bt_atletas" -H "apikey: $KEY" -H "Authorization: Bearer $TOK_COACH" \
+RC=$(curl -s -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $KEY" \
+  -H "Content-Type: application/json" -d "{\"email\":\"$COACH_EMAIL\",\"password\":\"$COACH_SENHA\"}")
+TOK_COACH=$(echo "$RC" | jqpy ".get('access_token','')")
+[ -z "$TOK_COACH" ] && { echo "ERRO no login do treinador ($COACH_EMAIL): $RC"; exit 1; }
+RP=$(curl -s -H "apikey: $KEY" -H "Authorization: Bearer $TOK_COACH" \
+  "$URL/rest/v1/bt_perfis?select=user_id&papel=eq.treinador")
+COACH_UID=$(echo "$RP" | jqpy "[0]['user_id']" 2>/dev/null || true)
+[ -z "$COACH_UID" ] && { echo "ERRO: $COACH_EMAIL logou, mas não tem perfil papel=treinador em bt_perfis. Resposta: $RP"; exit 1; }
+RA=$(curl -s -w '\n%{http_code}' -X POST "$URL/rest/v1/bt_atletas" -H "apikey: $KEY" -H "Authorization: Bearer $TOK_COACH" \
   -H "Content-Type: application/json" -H "Prefer: resolution=merge-duplicates" \
-  -d "[{\"atleta_id\":\"$SLUG\",\"treinador_id\":\"$COACH_UID\",\"nome\":\"$NOME\",\"status\":\"ativo\"}]" > /dev/null
+  -d "[{\"atleta_id\":\"$SLUG\",\"treinador_id\":\"$COACH_UID\",\"nome\":\"$NOME\",\"status\":\"ativo\"}]")
+CODE_A="${RA##*$'\n'}"
+[ "$CODE_A" -ge 300 ] && { echo "ERRO ao criar ficha em bt_atletas (HTTP $CODE_A): ${RA%$'\n'*}"; exit 1; }
 
 echo "4/4 validando login do atleta…"
-curl -sf -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $KEY" \
-  -H "Content-Type: application/json" -d "{\"email\":\"$EMAIL\",\"password\":\"$SENHA\"}" > /dev/null
+RV=$(curl -s -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $KEY" \
+  -H "Content-Type: application/json" -d "{\"email\":\"$EMAIL\",\"password\":\"$SENHA\"}")
+[ -z "$(echo "$RV" | jqpy ".get('access_token','')")" ] && { echo "ERRO ao validar login do atleta ($EMAIL): $RV"; exit 1; }
 
 echo "✅ Atleta criado: $EMAIL → $SLUG (treinador $COACH_EMAIL)."
 echo "   Oriente a troca da senha inicial. Slug deve bater com a planilha do lab."
