@@ -34,9 +34,11 @@ TOK_NOVO=$(echo "$R" | jqpy ".get('access_token','')" 2>/dev/null || true)
 [ -z "$UID_NOVO" ] && { echo "ERRO no signup ($EMAIL): $R"; exit 1; }
 
 echo "2/4 criando perfil de atleta (vínculo $SLUG)…"
-curl -sf -X POST "$URL/rest/v1/bt_perfis" -H "apikey: $KEY" -H "Authorization: Bearer $TOK_NOVO" \
+RB=$(curl -s -w '\n%{http_code}' -X POST "$URL/rest/v1/bt_perfis" -H "apikey: $KEY" -H "Authorization: Bearer $TOK_NOVO" \
   -H "Content-Type: application/json" \
-  -d "[{\"user_id\":\"$UID_NOVO\",\"papel\":\"atleta\",\"nome\":\"$NOME\",\"atleta_id\":\"$SLUG\"}]" > /dev/null
+  -d "[{\"user_id\":\"$UID_NOVO\",\"papel\":\"atleta\",\"nome\":\"$NOME\",\"atleta_id\":\"$SLUG\"}]")
+CODE_B="${RB##*$'\n'}"
+[ "$CODE_B" -ge 300 ] && { echo "ERRO ao criar perfil em bt_perfis (HTTP $CODE_B): ${RB%$'\n'*}"; exit 1; }
 
 echo "3/4 logando como treinador e criando a ficha…"
 RC=$(curl -s -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $KEY" \
