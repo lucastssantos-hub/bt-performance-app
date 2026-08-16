@@ -149,29 +149,40 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get('GROQ_API_KEY')
     if (!apiKey) return json({ error: 'Copiloto ainda não configurado pelo administrador' }, 503)
 
-    const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: Deno.env.get('GROQ_MODEL') || 'openai/gpt-oss-120b',
-        max_tokens: 2048,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-    })
-    const aiData = await aiResponse.json().catch(() => ({})) as {
-      choices?: Array<{ message?: { content?: string } }>
-      error?: { message?: string; code?: string }
+    // Groq rate-limita chamadas em sequência rápida (ex.: montar microciclo,
+    // que chama esta função várias vezes seguidas) — sem retry, a 2ª/3ª
+    // chamada falha quase sempre com 429. Backoff exponencial curto (o
+    // cliente já tem seu próprio timeout de 30s, então não vale a pena
+    // esperar mais que ~6s no total aqui).
+    let aiResponse: Response | null = null
+    let aiData: { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string; code?: string } } = {}
+    const delays = [0, 1200, 2500]
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt]) await new Promise(r => setTimeout(r, delays[attempt]))
+      aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: Deno.env.get('GROQ_MODEL') || 'openai/gpt-oss-120b',
+          max_tokens: 2048,
+          temperature: 0.2,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
+      })
+      aiData = await aiResponse.json().catch(() => ({}))
+      if (aiResponse.ok) break
+      console.error('Groq error', aiResponse.status, aiData.error?.code, aiData.error?.message, `tentativa ${attempt + 1}/${delays.length}`)
+      if (aiResponse.status !== 429 && aiResponse.status < 500) break // erro do nosso lado (ex.: prompt inválido) — não adianta repetir
     }
-    if (!aiResponse.ok) {
-      console.error('Groq error', aiResponse.status, aiData.error?.code, aiData.error?.message)
-      return json({ error: 'O provedor de IA não conseguiu gerar a sessão' }, 502)
+    if (!aiResponse || !aiResponse.ok) {
+      const isRateLimit = aiResponse?.status === 429
+      return json({ error: isRateLimit ? 'O provedor de IA está com muitas requisições agora — aguarde alguns segundos e tente de novo.' : 'O provedor de IA não conseguiu gerar a sessão' }, 502)
     }
     const result = aiData.choices?.[0]?.message?.content
     if (!result) return json({ error: 'O provedor retornou uma resposta vazia' }, 502)

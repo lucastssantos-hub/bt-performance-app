@@ -858,6 +858,10 @@ const actions = {
     go('coachMicrociclo');
     const results = [];
     for (let i = 0; i < days.length; i++) {
+      // espaça as chamadas — a Groq rate-limita pedidos em sequência rápida
+      // (o servidor já tenta de novo sozinho, isso é só pra evitar bater no
+      // limite logo de cara quando o microciclo tem vários dias).
+      if (i > 0) await new Promise(r => setTimeout(r, 1500));
       const date = days[i];
       const priorCodes = results.map(r => r.validation && r.validation.code).filter(Boolean);
       const prompt = buildMicrocicloPrompt(a, c, date, i + 1, days.length, priorCodes, analysis, weekTravels, weekTournaments);
