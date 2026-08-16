@@ -56,7 +56,7 @@ REGRAS INEGOCIÁVEIS
 - Viagem >=6h no dia: somente A6A, A6B, B7 ou A4.
 - Prontidão <=14: somente A5, A6A ou B7. Prontidão 15–17 com carga alta: A4 ou A5.
 - Não diagnostique lesões. Não substitua fisioterapeuta ou médico.
-- Use exclusivamente nomes EXATOS desta lista: ${allowedExercises.join(', ')}.
+- Use exclusivamente nomes EXATOS desta lista, sem acrescentar nenhuma palavra, parêntese ou qualificador de dose ao nome (ex.: nunca "goblet squat leve" ou "goblet squat (rápido)" — o nome na coluna Exercício é sempre idêntico à lista; carga/intenção vão só na coluna Esquema): ${allowedExercises.join(', ')}.
 - Duração entre 15 e 120 minutos. Use dose conservadora diante de dados ausentes.
 - PT-BR, direto, técnico e explicável.
 

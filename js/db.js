@@ -160,8 +160,13 @@ export const EXERCISE_GROUP_LABELS = {
 };
 
 const EXERCISE_ID_MAP = Object.fromEntries(EXERCISE_LIBRARY.map(e => [e.nome, e.id]));
-const normalizeExName = (v) => String(v || '').replace(/\*\*/g, '')
-  .replace(/\s*\([^)]*(leve|fácil|reps)[^)]*\)\s*/gi, '').trim().toLowerCase();
+// Espelha normalizeExercise (js/app.js) — mesma regra, mesmo motivo: a IA às
+// vezes anexa um qualificador de dose ao nome do exercício.
+const normalizeExName = (v) => String(v || '')
+  .replace(/\*\*/g, '')
+  .replace(/\s*\([^)]*\)\s*/g, ' ')
+  .replace(/\s+(leve|leves|fácil|fáceis|pesad[oa]s?|moderad[oa]s?|reps?)\s*$/gi, '')
+  .trim().toLowerCase().replace(/\s+/g, ' ');
 
 // bt_sessoes_prescritas espera exercicios: [{exercicio_id, series, repeticoes,
 // intensidade, descanso, ordem}] (comentário do schema) — aceita campos extras.

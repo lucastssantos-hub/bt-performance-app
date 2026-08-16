@@ -126,8 +126,17 @@ const COPILOTO_EXERCISES = new Set([
   'lateral shuffle','double shuffle','cut and shuffle','lateral shuffle contínuo',
   'lean and crossover','crossover potente','cut and crossover',
 ]);
+// A IA às vezes anexa um qualificador de dose ao nome do exercício em vez de
+// deixar só na coluna Esquema (ex.: "goblet squat leve (máxima velocidade)").
+// Normaliza removendo qualquer parêntese e qualificador solto no final antes
+// de comparar com a biblioteca fechada — sem isso, sessão correta era
+// rejeitada por um detalhe de formatação, não por exercício inventado de
+// verdade.
 const normalizeExercise = (value) => String(value || '')
-  .replace(/\*\*/g, '').replace(/\s*\([^)]*(leve|fácil|reps)[^)]*\)\s*/gi, '').trim().toLowerCase();
+  .replace(/\*\*/g, '')
+  .replace(/\s*\([^)]*\)\s*/g, ' ')
+  .replace(/\s+(leve|leves|fácil|fáceis|pesad[oa]s?|moderad[oa]s?|reps?)\s*$/gi, '')
+  .trim().toLowerCase().replace(/\s+/g, ' ');
 
 function validateCopilotoResult(result, { checkin, contextText }) {
   const code = (result.match(/^#\s+Sessão\s+(A[1-5]|A6[AB]|B[1-4]|B6|B7)\b/im) || [])[1]?.toUpperCase();
