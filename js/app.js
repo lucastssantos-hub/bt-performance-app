@@ -739,7 +739,7 @@ const actions = {
     const e = s.exercises.find(x => x.id === el.dataset.arg); if (!e || !e.mediaUrl) return;
     const isVideo = (e.mediaType || '').startsWith('video') || /\.(mp4|webm|mov)(\?|$)/i.test(e.mediaUrl);
     const media = isVideo
-      ? `<video src="${esc(e.mediaUrl)}" controls autoplay loop playsinline style="width:100%;border-radius:14px;background:#000;"></video>`
+      ? `<video src="${esc(e.mediaUrl)}" controls autoplay muted loop playsinline style="width:100%;border-radius:14px;background:#000;"></video>`
       : `<img src="${esc(e.mediaUrl)}" alt="Execução de ${esc(e.name)}" style="width:100%;border-radius:14px;">`;
     openModal(e.name, `${media}${e.description ? `<div style="font-size:13px;color:#C7CFDA;margin-top:14px;line-height:1.5;">${esc(e.description)}</div>` : ''}`);
   },
