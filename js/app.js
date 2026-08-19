@@ -731,6 +731,18 @@ const actions = {
     db.update('sessions', s.id, { status: s.status === 'PLANNED' ? 'IN_PROGRESS' : s.status, exercises: s.exercises });
     render();
   },
+  // Toque na miniatura abre a demonstração (GIF/vídeo) em tela cheia — ação
+  // separada de exercise-toggle (que marca concluído), então tocar no vídeo
+  // nunca marca o exercício como feito sem querer.
+  'exercise-media': (el) => {
+    const s = db.get('sessions', state.ctx.sessionId); if (!s) return;
+    const e = s.exercises.find(x => x.id === el.dataset.arg); if (!e || !e.mediaUrl) return;
+    const isVideo = (e.mediaType || '').startsWith('video') || /\.(mp4|webm|mov)(\?|$)/i.test(e.mediaUrl);
+    const media = isVideo
+      ? `<video src="${esc(e.mediaUrl)}" controls autoplay loop playsinline style="width:100%;border-radius:14px;background:#000;"></video>`
+      : `<img src="${esc(e.mediaUrl)}" alt="Execução de ${esc(e.name)}" style="width:100%;border-radius:14px;">`;
+    openModal(e.name, `${media}${e.description ? `<div style="font-size:13px;color:#C7CFDA;margin-top:14px;line-height:1.5;">${esc(e.description)}</div>` : ''}`);
+  },
   'workout-continue': () => {
     const s = db.get('sessions', state.ctx.sessionId); if (!s) return;
     const nxt = s.exercises.sort((a, b) => a.order - b.order).find(e => e.status !== 'DONE');
