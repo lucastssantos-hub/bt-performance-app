@@ -109,7 +109,10 @@ export function athleteWorkout(ctx) {
     const isDone = e.status === 'DONE';
     const isCurrent = !isDone && sess.exercises.filter(x => x.order < e.order && x.status !== 'DONE').length === 0 && sess.status === 'IN_PROGRESS';
     return `<div class="tap" data-action="exercise-toggle" data-arg="${e.id}" style="display:flex;align-items:center;gap:13px;background:#0D1015;border:1px solid ${isCurrent ? 'rgba(255,106,61,.2)' : 'rgba(255,255,255,.06)'};border-radius:14px;padding:12px 13px;">
-      ${e.mediaUrl ? `<img src="${esc(e.mediaUrl)}" alt="Execução de ${esc(e.name)}" loading="lazy" style="width:68px;height:68px;border-radius:11px;object-fit:cover;background:#14181F;flex-shrink:0;${isDone ? 'opacity:.55;' : ''}">` : ''}
+      ${e.mediaUrl ? `<div class="tap" data-action="exercise-media" data-arg="${e.id}" style="position:relative;width:68px;height:68px;border-radius:11px;flex-shrink:0;${isDone ? 'opacity:.55;' : ''}">
+        <img src="${esc(e.mediaUrl)}" alt="Execução de ${esc(e.name)}" loading="lazy" style="width:100%;height:100%;border-radius:11px;object-fit:cover;background:#14181F;">
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(11,14,18,.28);border-radius:11px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="#F4F6F8"><path d="M8 5v14l11-7z"/></svg></div>
+      </div>` : ''}
       <div style="width:30px;height:30px;border-radius:9px;background:${isDone ? 'rgba(52,224,161,.13)' : isCurrent ? '#FF6A3D' : '#1C232C'};display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk';font-weight:700;font-size:13px;color:${isCurrent ? '#0B0E12' : '#F4F6F8'};">
         ${isDone ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34E0A1" stroke-width="2.6"><path d="M5 12l5 5L20 7"/></svg>' : i}</div>
       <div style="flex:1;min-width:0;"><div style="font-size:14.5px;font-weight:700;overflow-wrap:anywhere;${isDone ? 'color:#8A94A3;text-decoration:line-through;' : ''}">${esc(e.name)}</div>
