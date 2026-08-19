@@ -54,7 +54,14 @@ export function openModal(title, bodyHtml, { submitLabel = 'Salvar', onSubmit = 
   });
   return form;
 }
-export function closeModal() { const host = document.getElementById('modal-host'); host.style.display = 'none'; host.innerHTML = ''; }
+export function closeModal() {
+  const host = document.getElementById('modal-host');
+  // pausa qualquer vídeo antes de tirar da tela — sem isso o navegador (Android/Chrome)
+  // pode deixar o controle nativo de mídia flutuando por cima do app depois de fechar.
+  host.querySelectorAll('video').forEach(v => { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) { /* ok */ } });
+  host.style.display = 'none';
+  host.innerHTML = '';
+}
 
 export function confirmDialog(msg, { okLabel = 'Confirmar', danger = true } = {}) {
   return new Promise((resolve) => {
