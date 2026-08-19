@@ -271,7 +271,7 @@ function generalIndexOf(a) {
 // ── hidratação: tabelas canônicas → cache em memória ─────────────────────────
 async function hydrate() {
   const monday = mondayOf(todayISO());
-  const [perfis, atletas, monit, dor, pront, carga, presc, bibS, bibE, bibM, aval, torn, viag, dec] = await Promise.all([
+  const [perfis, atletas, monit, dor, pront, carga, presc, bibS, bibE, aval, torn, viag, dec] = await Promise.all([
     restGet('bt_perfis?select=*'),
     restGet('bt_atletas?select=*&order=nome'),
     restGet('bt_monitoramento_diario?select=*&order=data.desc&limit=500'),
@@ -281,7 +281,6 @@ async function hydrate() {
     restGet('bt_sessoes_prescritas?select=*&order=data.desc&limit=200'),
     restGet('bt_biblioteca_sessoes?select=codigo,nome,ambiente'),
     restGet('bt_biblioteca_exercicios?select=*'),
-    restGet('bt_exercicio_midias?select=*&ativo=eq.true&finalidade=eq.execucao&order=ordem'),
     restGet('bt_avaliacoes?select=*&order=data.desc&limit=1000'),
     restGet('bt_torneios?select=*'),
     restGet('bt_viagens?select=*'),
@@ -345,26 +344,27 @@ async function hydrate() {
   const bibSesM = {}; (bibS || []).forEach(b => { bibSesM[b.codigo] = b; });
   const bibExM = {}; (bibE || []).forEach(b => { bibExM[b.exercicio_id] = { ...b }; });
   const prescribedIds = new Set((presc || []).flatMap(p => (p.exercicios || []).map(e => e.exercicio_id).filter(Boolean)));
+  // bt_exercicio_midias é do projeto COMPARTILHADO (mídia de outros apps também) —
+  // uma busca sem filtro de exercício bate no limite de linhas do PostgREST
+  // (db-max-rows) antes de chegar nos exercícios da sessão, e a mídia some em
+  // silêncio pra exercícios "mais pra baixo" na ordenação. Filtra só pelos
+  // exercícios que a sessão realmente usa, nunca a biblioteca inteira.
   const preferredMedia = {};
-  (bibM || []).forEach(m => {
-    if (!preferredMedia[m.exercicio_id] || (m.demonstrador === 'neutro' && preferredMedia[m.exercicio_id].demonstrador !== 'neutro')) {
-      preferredMedia[m.exercicio_id] = m;
-    }
-  });
-  // DEBUG TEMPORÁRIO — remover depois de diagnosticar mídia não aparecendo.
-  console.log('[debug-midia] prescribedIds:', [...prescribedIds]);
-  console.log('[debug-midia] bibM.length:', (bibM || []).length, 'primeiros exercicio_id:', (bibM || []).slice(0, 5).map(m => m.exercicio_id));
-  console.log('[debug-midia] preferredMedia keys:', Object.keys(preferredMedia));
-  ['hip-thrust', 'step-up', 'nordic-flexora', 'panturrilha-sentada', 'dead-bug'].forEach(id => {
-    console.log(`[debug-midia] ${id} → prescribedIds.has=${prescribedIds.has(id)} preferredMedia=${!!preferredMedia[id]} bibExM=${!!bibExM[id]}`, preferredMedia[id]);
-  });
+  if (prescribedIds.size) {
+    const idsFiltro = [...prescribedIds].map(encodeURIComponent).join(',');
+    const bibM = await restGet(`bt_exercicio_midias?select=*&ativo=eq.true&finalidade=eq.execucao&exercicio_id=in.(${idsFiltro})&order=ordem`);
+    (bibM || []).forEach(m => {
+      if (!preferredMedia[m.exercicio_id] || (m.demonstrador === 'neutro' && preferredMedia[m.exercicio_id].demonstrador !== 'neutro')) {
+        preferredMedia[m.exercicio_id] = m;
+      }
+    });
+  }
   await Promise.all([...prescribedIds].map(async exerciseId => {
     const m = preferredMedia[exerciseId];
     if (!m || !bibExM[exerciseId]) return;
     try {
       bibExM[exerciseId].mediaUrl = await storageObjectUrl(m.storage_bucket, m.storage_path);
       bibExM[exerciseId].mediaType = m.tipo;
-      console.log(`[debug-midia] ${exerciseId} → mediaUrl OK`, bibExM[exerciseId].mediaUrl);
     } catch (err) {
       console.warn(`[db] mídia indisponível para ${exerciseId}:`, err && err.message);
     }
