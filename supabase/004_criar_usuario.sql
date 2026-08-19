@@ -21,12 +21,24 @@ declare
   v_slug   text := 'fulano-silva';                  -- 🔧 atleta_id (slug, igual ao da planilha!)
   v_trein  uuid := '00000000-0000-4000-8000-000000000001'; -- 🔧 user_id do treinador dono
 begin
+  -- Correção de 2026-08-19: os campos de token abaixo (confirmation_token,
+  -- email_change*, recovery_token, reauthentication_token, phone_change*)
+  -- não tinham default confiável nesta tabela — ficavam NULL, e o GoTrue
+  -- (Auth) quebra ao tentar ler NULL nesses campos durante o login,
+  -- devolvendo "Database error querying schema". Pego ao criar o acesso do
+  -- Gustavo Couto (primeiro atleta real) — rafael/joao não sofriam disso
+  -- porque foram criados pelo signup oficial da API, que preenche tudo.
+  -- Setar '' explicitamente aqui evita o problema na origem.
   insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
                           email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-                          created_at, updated_at)
+                          created_at, updated_at,
+                          confirmation_token, email_change, email_change_token_new,
+                          email_change_token_current, recovery_token,
+                          reauthentication_token, phone_change, phone_change_token)
   values ('00000000-0000-0000-0000-000000000000', v_uid, 'authenticated', 'authenticated',
           v_email, extensions.crypt(v_senha, extensions.gen_salt('bf')), now(),
-          '{"provider":"email","providers":["email"]}', '{}', now(), now());
+          '{"provider":"email","providers":["email"]}', '{}', now(), now(),
+          '', '', '', '', '', '', '', '');
 
   insert into auth.identities (id, user_id, identity_data, provider, provider_id,
                                last_sign_in_at, created_at, updated_at)
@@ -61,3 +73,19 @@ end $$;
 -- · Senha: orientar troca no primeiro acesso (recurso de troca de senha é
 --   pendência do app; até lá, usar senha forte única por atleta).
 -- · Remover usuários de teste (rafael/joao/intruso) quando entrar atleta real.
+-- · 2026-08-19: Bloco A corrigido para preencher os campos de token de
+--   auth.users com '' em vez de deixar NULL (ver comentário no bloco acima)
+--   — se algum usuário tiver sido criado com uma versão anterior deste
+--   template e o login falhar com "Database error querying schema", rodar:
+--     update auth.users set
+--       confirmation_token = coalesce(confirmation_token, ''),
+--       email_change = coalesce(email_change, ''),
+--       email_change_token_new = coalesce(email_change_token_new, ''),
+--       email_change_token_current = coalesce(email_change_token_current, ''),
+--       recovery_token = coalesce(recovery_token, ''),
+--       reauthentication_token = coalesce(reauthentication_token, ''),
+--       phone_change = coalesce(phone_change, ''),
+--       phone_change_token = coalesce(phone_change_token, '')
+--     where email = '<email do usuário afetado>';
+-- · gustavo-couto (Gustavo Couto, gustavo.couto@atleta.com) já foi criado com
+--   este bug e corrigido manualmente com o UPDATE acima — login validado.
