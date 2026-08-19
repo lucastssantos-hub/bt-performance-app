@@ -168,7 +168,7 @@ export async function invokePublicFunction(name, body, timeoutMs = 30000) {
 
 // Storage privado: baixa o objeto com o JWT do usuário e devolve uma URL local
 // para <img>/<video>. A URL dura somente enquanto a página estiver aberta.
-export async function storageObjectUrl(bucket, path, timeoutMs = 12000) {
+export async function storageObjectUrl(bucket, path, timeoutMs = 45000) {
   if (!sess) throw new Error('sem sessão');
   if (sess.expires_at - 60 <= Date.now() / 1000) await refreshIfNeeded();
   if (!sess) throw new Error('sessão expirada');
