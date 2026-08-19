@@ -60,6 +60,12 @@
        aparece "no meio" da lista em vez de fixo embaixo. fixed ancora direto
        na viewport visível, sem depender da cadeia de position:absolute. */
     .tabbar, #modal-host, #toast-host { position: fixed; }
+    /* Chrome Android tem um bug conhecido: position:fixed + backdrop-filter
+       juntos "descolam" da tela durante a transição da barra de endereço
+       (some/aparece ao rolar) — o navegador não recalcula a posição do
+       elemento fixo nesse momento. translateZ(0) força o elemento pra sua
+       própria camada de composição estável, o que evita o descolamento. */
+    .tabbar { transform: translateZ(0); will-change: transform; }
   }
 </style>
 </head>
