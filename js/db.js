@@ -351,12 +351,20 @@ async function hydrate() {
       preferredMedia[m.exercicio_id] = m;
     }
   });
+  // DEBUG TEMPORÁRIO — remover depois de diagnosticar mídia não aparecendo.
+  console.log('[debug-midia] prescribedIds:', [...prescribedIds]);
+  console.log('[debug-midia] bibM.length:', (bibM || []).length, 'primeiros exercicio_id:', (bibM || []).slice(0, 5).map(m => m.exercicio_id));
+  console.log('[debug-midia] preferredMedia keys:', Object.keys(preferredMedia));
+  ['hip-thrust', 'step-up', 'nordic-flexora', 'panturrilha-sentada', 'dead-bug'].forEach(id => {
+    console.log(`[debug-midia] ${id} → prescribedIds.has=${prescribedIds.has(id)} preferredMedia=${!!preferredMedia[id]} bibExM=${!!bibExM[id]}`, preferredMedia[id]);
+  });
   await Promise.all([...prescribedIds].map(async exerciseId => {
     const m = preferredMedia[exerciseId];
     if (!m || !bibExM[exerciseId]) return;
     try {
       bibExM[exerciseId].mediaUrl = await storageObjectUrl(m.storage_bucket, m.storage_path);
       bibExM[exerciseId].mediaType = m.tipo;
+      console.log(`[debug-midia] ${exerciseId} → mediaUrl OK`, bibExM[exerciseId].mediaUrl);
     } catch (err) {
       console.warn(`[db] mídia indisponível para ${exerciseId}:`, err && err.message);
     }
