@@ -54,6 +54,12 @@
     .device { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; }
     .statusbar { display: none; }
     .pagepad { padding-top: 24px; }
+    /* No celular real o .device já É a tela — .tabbar (absolute, ancorado no
+       container de scroll .screenfade) fica sujeito à altura dinâmica da
+       barra de endereço do navegador (100dvh mudando durante o scroll) e
+       aparece "no meio" da lista em vez de fixo embaixo. fixed ancora direto
+       na viewport visível, sem depender da cadeia de position:absolute. */
+    .tabbar, #modal-host, #toast-host { position: fixed; }
   }
 </style>
 </head>
