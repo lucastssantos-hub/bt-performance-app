@@ -4,11 +4,18 @@ import { esc, ring, avatar, initialsOf, fmtShort, fmtDow, fmtDayNum, fmtTimeAgo,
 import { tabbar, header, ICONS } from './screens-coach.js';
 
 const myAthlete = () => { const u = auth.current(); return db.get('athletes', u.athleteId) || db.list('athletes')[0]; };
-// prioridade: em curso > planejada > concluída; empate: mais exercícios primeiro
+// Antes olhava só a data de hoje — se o atleta perdesse um dia, o treino
+// simplesmente sumia da Home/Treino sem aviso. Agora olha a semana inteira
+// (segunda até hoje): prioriza o treino em curso, depois o pendente mais
+// antigo primeiro (recupera o atrasado antes de avançar pro de hoje).
+// Concluído/pulado não aparece mais aqui — já tem espaço próprio no
+// Histórico de treinos.
 export const todaySession = (athleteId) => {
-  const rank = { IN_PROGRESS: 0, PLANNED: 1, COMPLETED: 2, SKIPPED: 3 };
-  return db.list('sessions', s => s.athleteId === athleteId && s.date === todayISO())
-    .sort((a, b) => (rank[a.status] - rank[b.status]) || ((b.exercises || []).length - (a.exercises || []).length))[0] || null;
+  const rank = { IN_PROGRESS: 0, PLANNED: 1 };
+  const monday = mondayOf(todayISO());
+  return db.list('sessions', s => s.athleteId === athleteId && s.date >= monday && s.date <= todayISO()
+      && (s.status === 'IN_PROGRESS' || s.status === 'PLANNED'))
+    .sort((a, b) => (rank[a.status] - rank[b.status]) || a.date.localeCompare(b.date) || ((b.exercises || []).length - (a.exercises || []).length))[0] || null;
 };
 
 // ── HOME ─────────────────────────────────────────────────────────────────────
@@ -34,12 +41,12 @@ export function athleteHome() {
       <div style="flex:1;"><div style="font-family:'Space Grotesk';font-weight:700;font-size:20px;line-height:1.1;">${hasToday ? (r >= 80 ? 'Você está pronto' : r >= 65 ? 'Atenção hoje' : 'Corpo pedindo leve') : 'Faça o check-in'}</div>
       <div style="font-size:13px;color:#C7CFDA;margin-top:6px;line-height:1.4;">${hasToday ? 'Check-in de hoje enviado. Toque para revisar.' : '30 segundos · calibra seu treino de hoje.'}</div></div></div>
     ${sess ? `<div style="background:#0D1015;border:1px solid rgba(255,106,61,.2);border-radius:20px;padding:18px;margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><div style="font-size:11px;font-weight:700;letter-spacing:.12em;color:#FF6A3D;">TREINO DE HOJE</div><span style="font-size:12px;color:#8A94A3;">${sess.durationMinutes} min · ${sess.location === 'GYM' ? 'academia' : sess.location === 'SAND' ? 'areia' : 'recovery'}</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><div style="font-size:11px;font-weight:700;letter-spacing:.12em;color:#FF6A3D;">${sess.date === todayISO() ? 'TREINO DE HOJE' : 'TREINO EM ATRASO · ' + fmtDow(sess.date).toUpperCase()}</div><span style="font-size:12px;color:#8A94A3;">${sess.durationMinutes} min · ${sess.location === 'GYM' ? 'academia' : sess.location === 'SAND' ? 'areia' : 'recovery'}</span></div>
       <div style="display:flex;align-items:center;gap:14px;"><div style="width:46px;height:46px;border-radius:13px;background:rgba(255,106,61,.13);display:flex;align-items:center;justify-content:center;">${ICONS.barbell('#FF6A3D')}</div>
       <div style="flex:1;"><div style="font-weight:700;font-size:16px;">${esc(sess.title)}</div>
-      <div style="font-size:12.5px;color:#8A94A3;">${sess.exercises.length ? sess.exercises.length + ' exercícios · ' : ''}RPE alvo ${sess.targetRpe}${sess.status === 'COMPLETED' ? ' · concluído ✓' : sess.status === 'IN_PROGRESS' ? ' · em curso' : ''}</div></div></div>
-      <button class="tap btn-primary" data-action="${sess.status === 'COMPLETED' ? 'tab' : 'workout-start'}" data-screen="athleteWorkout" data-arg="${sess.id}" style="padding:14px;margin-top:14px;border-radius:13px;${sess.status === 'COMPLETED' ? 'background:#1C232C;color:#F4F6F8;' : ''}">${sess.status === 'COMPLETED' ? 'Ver treino concluído' : sess.status === 'IN_PROGRESS' ? 'Continuar treino' : 'Iniciar treino'}</button></div>`
-      : `<div class="card" style="border-radius:20px;padding:18px;margin-bottom:14px;text-align:center;color:#8A94A3;font-size:13.5px;">Sem treino programado para hoje. Dia de descanso 😴</div>`}
+      <div style="font-size:12.5px;color:#8A94A3;">${sess.exercises.length ? sess.exercises.length + ' exercícios · ' : ''}RPE alvo ${sess.targetRpe}${sess.status === 'IN_PROGRESS' ? ' · em curso' : ''}</div></div></div>
+      <button class="tap btn-primary" data-action="workout-start" data-screen="athleteWorkout" data-arg="${sess.id}" style="padding:14px;margin-top:14px;border-radius:13px;">${sess.status === 'IN_PROGRESS' ? 'Continuar treino' : 'Iniciar treino'}</button></div>`
+      : `<div class="card" style="border-radius:20px;padding:18px;margin-bottom:14px;text-align:center;color:#8A94A3;font-size:13.5px;">Nenhum treino pendente essa semana 😴</div>`}
     <div style="display:flex;gap:12px;margin-bottom:14px;">
       <div class="tap card" data-action="go" data-screen="athleteTournament" style="flex:1;border-radius:16px;padding:15px;"><div class="seclabel" style="letter-spacing:.1em;">PRÓXIMO TORNEIO</div>
         <div style="font-family:'Space Grotesk';font-weight:700;font-size:17px;margin-top:6px;">${nt ? esc(nt.name) : '—'}</div>
@@ -100,7 +107,7 @@ export function athleteWellness(ctx) {
 export function athleteWorkout(ctx) {
   const a = myAthlete();
   const sess = (ctx.sessionId && db.get('sessions', ctx.sessionId)) || todaySession(a.id);
-  if (!sess) return `<div class="pagepad" style="padding-top:58px;">${header('Treino', 'hoje')}<div style="text-align:center;color:#5A6472;font-size:13.5px;padding:30px 0;">Sem treino programado para hoje.</div></div>${tabbar('athleteWorkout', 'ATHLETE')}`;
+  if (!sess) return `<div class="pagepad" style="padding-top:58px;">${header('Treino', 'semana')}<div style="text-align:center;color:#5A6472;font-size:13.5px;padding:30px 0;">Nenhum treino pendente essa semana.</div></div>${tabbar('athleteWorkout', 'ATHLETE')}`;
   ctx.sessionId = sess.id;
   const done = sess.exercises.filter(e => e.status === 'DONE').length;
   const total = sess.exercises.length;
@@ -127,7 +134,7 @@ export function athleteWorkout(ctx) {
   else cta = `<button class="tap btn-primary" data-action="workout-continue" data-arg="${sess.id}" style="margin-top:16px;box-shadow:0 12px 30px -8px rgba(255,106,61,.5);">Concluir exercício ${done} de ${total}</button>`;
   return `<div class="pagepad" style="padding-top:58px;padding-bottom:110px;">
     <div style="display:flex;align-items:center;gap:13px;margin-bottom:16px;"><div class="tap backbtn" data-action="tab" data-screen="athleteHome">${ICONS.back}</div>
-      <div><div style="font-family:'Space Grotesk';font-weight:700;font-size:19px;">${esc(sess.title)}</div>
+      <div>${sess.date !== todayISO() ? `<div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#FF6A3D;margin-bottom:2px;">EM ATRASO · ${fmtDow(sess.date).toUpperCase()}</div>` : ''}<div style="font-family:'Space Grotesk';font-weight:700;font-size:19px;">${esc(sess.title)}</div>
       <div style="font-size:12.5px;color:#8A94A3;">${total ? total + ' exercícios · ' : ''}~${sess.durationMinutes} min · RPE alvo ${sess.targetRpe}</div></div></div>
     <div style="display:flex;gap:10px;margin-bottom:18px;">
       <div class="card" style="flex:1;border-radius:13px;padding:12px;text-align:center;"><div style="font-family:'Space Grotesk';font-weight:700;font-size:18px;">${total || '—'}</div><div style="font-size:11px;color:#8A94A3;">exercícios</div></div>

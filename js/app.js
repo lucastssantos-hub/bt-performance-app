@@ -719,7 +719,7 @@ const actions = {
   // treino
   'workout-start': (el) => {
     const s = db.get('sessions', el.dataset.arg) || A.todaySession((auth.current() || {}).athleteId);
-    if (!s) return toast('Sem treino para hoje', 'warn');
+    if (!s) return toast('Nenhum treino pendente essa semana', 'warn');
     if (s.status === 'PLANNED') { db.update('sessions', s.id, { status: 'IN_PROGRESS' }); toast('Treino iniciado 💪'); }
     state.ctx.sessionId = s.id;
     if (cur() !== 'athleteWorkout') tab('athleteWorkout'); else render();
