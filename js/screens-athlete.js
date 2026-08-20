@@ -17,6 +17,14 @@ export const todaySession = (athleteId) => {
       && (s.status === 'IN_PROGRESS' || s.status === 'PLANNED'))
     .sort((a, b) => (rank[a.status] - rank[b.status]) || a.date.localeCompare(b.date) || ((b.exercises || []).length - (a.exercises || []).length))[0] || null;
 };
+// Semana inteira (segunda a domingo), qualquer status — usado pela lista da
+// aba Treino, pra mostrar todos os dias com sessão, não só o mais urgente.
+export const weekSessions = (athleteId) => {
+  const monday = mondayOf(todayISO());
+  const sunday = addDays(monday, 6);
+  return db.list('sessions', s => s.athleteId === athleteId && s.date >= monday && s.date <= sunday)
+    .sort((a, b) => a.date.localeCompare(b.date));
+};
 
 // ── HOME ─────────────────────────────────────────────────────────────────────
 export function athleteHome() {
@@ -104,11 +112,48 @@ export function athleteWellness(ctx) {
 }
 
 // ── TREINO ───────────────────────────────────────────────────────────────────
+// Sem sessão selecionada: lista os dias da semana (segunda a domingo), cada
+// um com sessão vira um card tocável; toca pra abrir os exercícios daquele
+// dia. Só entra direto nos exercícios quando vem de um atalho (Home, ou
+// depois de tocar um dia da lista) — não escolhe mais 1 sessão sozinho.
+function athleteWorkoutWeek(a) {
+  const monday = mondayOf(todayISO());
+  const week = weekSessions(a.id);
+  const byDate = {};
+  week.forEach(s => { (byDate[s.date] = byDate[s.date] || []).push(s); });
+  const badge = (status) => ({
+    COMPLETED: ['#34E0A1', 'concluído ✓'], IN_PROGRESS: ['#FF6A3D', 'em curso'],
+    SKIPPED: ['#5A6472', 'pulado'], PLANNED: ['#8A94A3', 'planejado'],
+  })[status] || ['#8A94A3', ''];
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const date = addDays(monday, i);
+    const sessions = byDate[date] || [];
+    const isToday = date === todayISO();
+    if (!sessions.length) {
+      return `<div class="card" style="border-radius:16px;padding:14px 15px;display:flex;align-items:center;gap:13px;${isToday ? 'border-color:rgba(255,106,61,.25);' : ''}">
+        <div style="text-align:center;width:34px;flex-shrink:0;"><div style="font-family:'Space Grotesk';font-weight:700;font-size:15px;${isToday ? 'color:#FF6A3D;' : ''}">${fmtDayNum(date)}</div><div style="font-size:10px;color:#5A6472;">${fmtDow(date)}</div></div>
+        <div style="flex:1;font-size:13px;color:#5A6472;">Dia livre</div></div>`;
+    }
+    return sessions.map(s => {
+      const [color, label] = badge(s.status);
+      return `<div class="tap card" data-action="workout-open" data-arg="${s.id}" style="border-radius:16px;padding:14px 15px;display:flex;align-items:center;gap:13px;${isToday ? 'border-color:rgba(255,106,61,.25);' : ''}">
+        <div style="text-align:center;width:34px;flex-shrink:0;"><div style="font-family:'Space Grotesk';font-weight:700;font-size:15px;${isToday ? 'color:#FF6A3D;' : ''}">${fmtDayNum(date)}</div><div style="font-size:10px;color:#5A6472;">${fmtDow(date)}</div></div>
+        <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:700;overflow-wrap:anywhere;">${esc(s.title)}</div>
+        <div style="font-size:12px;color:#8A94A3;">${(s.exercises || []).length ? (s.exercises || []).length + ' exercícios · ' : ''}RPE alvo ${s.targetRpe}</div></div>
+        <span style="font-size:11.5px;font-weight:700;color:${color};white-space:nowrap;">${label}</span>${ICONS.chev}</div>`;
+    }).join('');
+  }).join('');
+  return `<div class="pagepad" style="padding-top:58px;padding-bottom:110px;">
+    ${header('Treino', 'semana')}
+    <div style="display:flex;flex-direction:column;gap:9px;">${days}</div>
+  </div>${tabbar('athleteWorkout', 'ATHLETE')}`;
+}
+
 export function athleteWorkout(ctx) {
   const a = myAthlete();
-  const sess = (ctx.sessionId && db.get('sessions', ctx.sessionId)) || todaySession(a.id);
-  if (!sess) return `<div class="pagepad" style="padding-top:58px;">${header('Treino', 'semana')}<div style="text-align:center;color:#5A6472;font-size:13.5px;padding:30px 0;">Nenhum treino pendente essa semana.</div></div>${tabbar('athleteWorkout', 'ATHLETE')}`;
-  ctx.sessionId = sess.id;
+  if (!ctx.sessionId) return athleteWorkoutWeek(a);
+  const sess = db.get('sessions', ctx.sessionId);
+  if (!sess) return athleteWorkoutWeek(a);
   const done = sess.exercises.filter(e => e.status === 'DONE').length;
   const total = sess.exercises.length;
   const allDone = total > 0 && done === total;
@@ -133,7 +178,7 @@ export function athleteWorkout(ctx) {
   else if (allDone || total === 0) cta = `<button class="tap btn-primary" data-action="workout-finish" data-arg="${sess.id}" style="margin-top:16px;box-shadow:0 12px 30px -8px rgba(255,106,61,.5);">Finalizar treino · registrar RPE</button>`;
   else cta = `<button class="tap btn-primary" data-action="workout-continue" data-arg="${sess.id}" style="margin-top:16px;box-shadow:0 12px 30px -8px rgba(255,106,61,.5);">Concluir exercício ${done} de ${total}</button>`;
   return `<div class="pagepad" style="padding-top:58px;padding-bottom:110px;">
-    <div style="display:flex;align-items:center;gap:13px;margin-bottom:16px;"><div class="tap backbtn" data-action="tab" data-screen="athleteHome">${ICONS.back}</div>
+    <div style="display:flex;align-items:center;gap:13px;margin-bottom:16px;"><div class="tap backbtn" data-action="workout-back-week">${ICONS.back}</div>
       <div>${sess.date !== todayISO() ? `<div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#FF6A3D;margin-bottom:2px;">EM ATRASO · ${fmtDow(sess.date).toUpperCase()}</div>` : ''}<div style="font-family:'Space Grotesk';font-weight:700;font-size:19px;">${esc(sess.title)}</div>
       <div style="font-size:12.5px;color:#8A94A3;">${total ? total + ' exercícios · ' : ''}~${sess.durationMinutes} min · RPE alvo ${sess.targetRpe}</div></div></div>
     <div style="display:flex;gap:10px;margin-bottom:18px;">

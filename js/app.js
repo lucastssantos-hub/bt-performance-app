@@ -724,6 +724,17 @@ const actions = {
     state.ctx.sessionId = s.id;
     if (cur() !== 'athleteWorkout') tab('athleteWorkout'); else render();
   },
+  // abre o dia escolhido na lista da semana — não mexe no status (só
+  // "iniciar treino" muda PLANNED pra IN_PROGRESS, tocar o card só visualiza)
+  'workout-open': (el) => {
+    state.ctx.sessionId = el.dataset.arg;
+    render();
+  },
+  // volta da tela de exercícios pra lista da semana (limpa a sessão escolhida)
+  'workout-back-week': () => {
+    delete state.ctx.sessionId;
+    render();
+  },
   'exercise-toggle': (el) => {
     const s = db.get('sessions', state.ctx.sessionId); if (!s || s.status === 'COMPLETED') return;
     const e = s.exercises.find(x => x.id === el.dataset.arg); if (!e) return;
