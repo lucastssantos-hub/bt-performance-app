@@ -63,9 +63,11 @@
     /* Chrome Android tem um bug conhecido: position:fixed + backdrop-filter
        juntos "descolam" da tela durante a transição da barra de endereço
        (some/aparece ao rolar) — o navegador não recalcula a posição do
-       elemento fixo nesse momento. translateZ(0) força o elemento pra sua
-       própria camada de composição estável, o que evita o descolamento. */
-    .tabbar { transform: translateZ(0); will-change: transform; }
+       elemento fixo nesse momento. translateZ(0) sozinho não foi suficiente
+       na prática — a correção que realmente resolve é tirar o backdrop-filter
+       no mobile (o gatilho do bug) e compensar com fundo quase opaco, pra não
+       perder a leitura de "barra sólida" sem o efeito de vidro fosco. */
+    .tabbar { transform: translateZ(0); will-change: transform; backdrop-filter: none; background: rgba(11,14,18,.98); }
   }
 </style>
 </head>
