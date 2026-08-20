@@ -13,7 +13,12 @@
   html, body { margin: 0; padding: 0; }
   body { background: #06070A; font-family: 'Manrope', sans-serif; -webkit-font-smoothing: antialiased; }
   ::-webkit-scrollbar { width: 0; height: 0; }
-  @keyframes scfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  /* to: transform: none (não translateY(0)) — translateY(0) ainda calcula pra uma
+     matriz identidade, que sozinha já faz o elemento virar "âncora" de
+     posicionamento pros filhos fixed/absolute (em vez da tela real). É a causa
+     raiz da tabbar aparecendo no meio da lista: .screenfade usa essa animação
+     e ficava com esse transform fantasma depois que o fade terminava. */
+  @keyframes scfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   .screenfade { animation: scfade .3s ease both; }
   .tap { cursor: pointer; transition: transform .12s ease, opacity .12s ease; -webkit-tap-highlight-color: transparent; user-select: none; }
